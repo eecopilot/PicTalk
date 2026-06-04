@@ -34,24 +34,47 @@
           @load="updateFrameSize"
         />
 
-        <button
+        <div
           v-for="region in regions"
           :key="region.localId"
+          role="button"
+          tabindex="0"
           class="region-marker"
-          :class="{ selected: region.localId === selectedLocalId, reading: mode === 'read' }"
+          :class="{
+            selected: region.localId === selectedLocalId,
+            reading: mode === 'read',
+            editable: mode === 'edit',
+            icon: isIconRegion(region),
+            persisted: isPersistedRegion(region),
+            editing: isEditingRegion(region)
+          }"
           :style="regionStyle(region)"
           @click.stop="handleRegionClick(region)"
           @pointerdown.stop="startDrag($event, region)"
         >
-          <input
-            v-if="mode === 'edit' && region.localId === selectedLocalId"
+          <el-input
+            v-if="isEditingRegion(region)"
             v-model="region.text"
             class="region-input"
+            type="textarea"
+            :autosize="{ minRows: 1, maxRows: 4 }"
             placeholder="输入文字"
             @click.stop
+            @pointerdown.stop
           />
-          <span v-else>{{ region.text || '待输入' }}</span>
-        </button>
+          <button
+            v-if="isEditingRegion(region)"
+            class="inline-save"
+            title="收起为喇叭"
+            @click.stop="collapseRegion(region)"
+            @pointerdown.stop
+          >
+            <el-icon><Check /></el-icon>
+          </button>
+          <span v-else class="speaker-hotspot" :title="region.text || '点击播放'">
+            <el-icon><Microphone /></el-icon>
+          </span>
+        </div>
       </div>
     </section>
 
@@ -70,6 +93,7 @@
 </template>
 
 <script setup lang="ts">
+import { Check, Microphone } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
@@ -89,6 +113,7 @@ type TextRegion = {
   yPercent: number;
   widthPercent: number;
   heightPercent: number;
+  localIconReady?: boolean;
 };
 
 const mode = ref<'edit' | 'read'>('edit');
@@ -105,6 +130,7 @@ const imageFrameRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
 const audio = ref<HTMLAudioElement | null>(null);
+const editingLocalId = ref<string | null>(null);
 const dragging = ref<{ region: TextRegion; startX: number; startY: number; startRegionX: number; startRegionY: number } | null>(null);
 
 const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
@@ -140,6 +166,7 @@ async function uploadImage(options: { file: File }) {
   currentImage.value = data.image;
   regions.value = data.regions.map(normalizeRegion);
   selectedLocalId.value = null;
+  editingLocalId.value = null;
   mode.value = 'edit';
   await nextTick();
   updateFrameSize();
@@ -156,6 +183,7 @@ async function reloadImage() {
   currentImage.value = data.image;
   regions.value = data.regions.map(normalizeRegion);
   selectedLocalId.value = null;
+  editingLocalId.value = null;
   await nextTick();
   updateFrameSize();
 }
@@ -175,12 +203,28 @@ function handleStageClick(event: MouseEvent) {
   };
   regions.value.push(region);
   selectedLocalId.value = region.localId;
+  editingLocalId.value = region.localId;
   creating.value = false;
 }
 
 function handleRegionClick(region: TextRegion) {
   selectedLocalId.value = region.localId;
-  if (mode.value === 'read') playRegion(region);
+  if (region.id && mode.value === 'read') {
+    playRegion(region);
+    return;
+  }
+  if (mode.value === 'edit' && !region.localIconReady) editingLocalId.value = region.localId;
+}
+
+function collapseRegion(region: TextRegion) {
+  if (!region.text.trim()) {
+    ElMessage.warning('请输入文字后再保存');
+    return;
+  }
+  region.text = region.text.trim();
+  region.localIconReady = true;
+  selectedLocalId.value = region.localId;
+  editingLocalId.value = null;
 }
 
 async function saveRegions() {
@@ -210,6 +254,9 @@ async function saveRegions() {
       saved.push(normalizeRegion(data.region));
     }
     regions.value = saved;
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    mode.value = 'read';
     ElMessage.success('已保存');
   } catch {
     ElMessage.error('保存失败，请检查文字内容和坐标');
@@ -230,6 +277,7 @@ async function deleteSelected() {
   }
   regions.value = regions.value.filter((item) => item.localId !== region.localId);
   selectedLocalId.value = null;
+  editingLocalId.value = null;
 }
 
 async function playRegion(region: TextRegion) {
@@ -260,6 +308,18 @@ function startDrag(event: PointerEvent, region: TextRegion) {
   };
 }
 
+function isIconRegion(region: TextRegion) {
+  return (Boolean(region.id) || Boolean(region.localIconReady)) && editingLocalId.value !== region.localId;
+}
+
+function isEditingRegion(region: TextRegion) {
+  return mode.value === 'edit' && editingLocalId.value === region.localId && !region.localIconReady;
+}
+
+function isPersistedRegion(region: TextRegion) {
+  return Boolean(region.id);
+}
+
 function handlePointerMove(event: PointerEvent) {
   if (!dragging.value || !imageFrameRef.value) return;
   const rect = imageFrameRef.value.getBoundingClientRect();
@@ -288,6 +348,12 @@ function updateFrameSize() {
 }
 
 function regionStyle(region: TextRegion) {
+  if (isIconRegion(region)) {
+    return {
+      left: `${region.xPercent}%`,
+      top: `${region.yPercent}%`
+    };
+  }
   return {
     left: `${region.xPercent}%`,
     top: `${region.yPercent}%`,
@@ -304,7 +370,8 @@ function normalizeRegion(region: any): TextRegion {
     xPercent: Number(region.xPercent),
     yPercent: Number(region.yPercent),
     widthPercent: Number(region.widthPercent ?? 18),
-    heightPercent: Number(region.heightPercent ?? 8)
+    heightPercent: Number(region.heightPercent ?? 8),
+    localIconReady: false
   };
 }
 

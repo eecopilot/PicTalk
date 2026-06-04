@@ -5,6 +5,10 @@
 
 一句话描述：PicTalk 让普通图片变成可以点击朗读的互动点读页面。
 
+## 演示视频
+
+https://github.com/eecopilot/PicTalk/blob/main/public/demo/pic-talk-demo.mp4
+
 ## 怎么跑
 clone 仓库：
 
@@ -17,18 +21,6 @@ cd PicTalk
 
 ```bash
 npm install
-```
-
-配置 Unity2.ai API key：
-
-```bash
-cp .env.example .env
-```
-
-然后在 `.env` 文件中填写：
-
-```bash
-UNITY2_API_KEY=xxx
 ```
 
 运行：

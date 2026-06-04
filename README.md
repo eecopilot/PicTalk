@@ -19,7 +19,7 @@ cd PicTalk
 npm install
 ```
 
-配置 API key：
+配置 Unity2.ai API key：
 
 ```bash
 cp .env.example .env
@@ -50,7 +50,7 @@ http://localhost:8787/
 ```
 
 ## 用了什么
-- GPT-5.5
+- Unity2.ai API（GPT-5.5）
 - Vue 3
 - Element Plus
 - Hono.js

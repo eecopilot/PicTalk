@@ -36,8 +36,18 @@ type SaveRecordRow = {
   created_at: string;
 };
 
+type OcrRegion = {
+  text: string;
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+};
+
 const PORT = Number(process.env.PORT ?? 8787);
-const UNITY2_API_KEY = process.env.UNITY2_API_KEY ?? '';
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://unity2.ai';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
+const OCR_MODEL = process.env.OCR_MODEL ?? 'gpt-5.5';
 const dataDir = join(process.cwd(), 'data');
 const uploadDir = join(process.cwd(), 'public', 'uploads');
 await mkdir(dataDir, { recursive: true });
@@ -82,7 +92,7 @@ const app = new Hono();
 app.use('/api/*', cors());
 app.use('/uploads/*', serveStatic({ root: './public' }));
 
-app.get('/api/health', (c) => c.json({ ok: true, unity2Configured: Boolean(UNITY2_API_KEY) }));
+app.get('/api/health', (c) => c.json({ ok: true, openaiConfigured: Boolean(OPENAI_API_KEY) }));
 
 app.get('/api/save-records', (c) => {
   return c.json({ records: getSaveRecords() });
@@ -110,7 +120,8 @@ app.post('/api/images', async (c) => {
   const height = Number(form.get('height') ?? 0) || 1;
   const extension = safeExtension(file.name);
   const filename = `${Date.now()}-${crypto.randomUUID()}${extension}`;
-  await writeFile(join(uploadDir, filename), Buffer.from(await file.arrayBuffer()));
+  const imageBuffer = Buffer.from(await file.arrayBuffer());
+  await writeFile(join(uploadDir, filename), imageBuffer);
 
   const result = db.prepare(`
     INSERT INTO images (filename, original_name, width, height)
@@ -118,7 +129,20 @@ app.post('/api/images', async (c) => {
   `).run(filename, file.name, width, height);
 
   const image = getImage(Number(result.lastInsertRowid));
-  return c.json({ image, regions: [] }, 201);
+  const regions = await detectTextRegions(imageBuffer, file.type, width, height);
+  return c.json({ image, regions, ocrEnabled: Boolean(OPENAI_API_KEY) }, 201);
+});
+
+app.post('/api/images/:id/ocr', async (c) => {
+  const image = getImage(Number(c.req.param('id')));
+  if (!image) return c.json({ error: 'image not found' }, 404);
+
+  const row = db.prepare('SELECT filename FROM images WHERE id = ?').get(image.id) as { filename: string } | undefined;
+  if (!row) return c.json({ error: 'image file not found' }, 404);
+  const filePath = join(uploadDir, row.filename);
+  const imageBuffer = await readFileForOcr(filePath);
+  const regions = await detectTextRegions(imageBuffer, mimeTypeFromExtension(row.filename), image.width, image.height);
+  return c.json({ regions, ocrEnabled: Boolean(OPENAI_API_KEY) });
 });
 
 app.get('/api/images/:id', (c) => {
@@ -264,6 +288,123 @@ function mapSaveRecord(row: SaveRecordRow) {
     regionCount: row.region_count,
     createdAt: row.created_at
   };
+}
+
+async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: number, height: number): Promise<OcrRegion[]> {
+  if (!OPENAI_API_KEY) return [];
+
+  try {
+    const response = await fetch(`${OPENAI_BASE_URL.replace(/\/$/, '')}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: OCR_MODEL,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'You are an OCR engine for a picture reading app.',
+              'Return only valid JSON with a regions array and no markdown.',
+              'Each region must include text, x, y, width, height.',
+              'Coordinates must be pixel coordinates relative to the original image.',
+              'Group words into useful readable phrases when they belong together.',
+              'If exact boxes are hard, estimate tight boxes around each visible phrase.',
+              'Do not include decorative watermarks or irrelevant background text.'
+            ].join(' ')
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Detect all readable text phrases in this image. Original image size is ${width}x${height}. Return JSON exactly like {"regions":[{"text":"hello","x":10,"y":20,"width":120,"height":40}]}. If there are speech bubbles, prioritize the text inside them.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${imageBuffer.toString('base64')}`
+                }
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      console.warn(`OCR request failed: ${response.status} ${await response.text()}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    const parsed = parseOcrJson(content);
+    if (parsed.length === 0) {
+      console.warn('OCR returned no regions', content);
+    }
+    return parsed.map((region: unknown) => normalizeOcrRegion(region, width, height)).filter((region: OcrRegion | null): region is OcrRegion => Boolean(region));
+  } catch (error) {
+    console.warn('OCR request failed', error);
+    return [];
+  }
+}
+
+async function readFileForOcr(path: string) {
+  const { readFile } = await import('node:fs/promises');
+  return readFile(path);
+}
+
+function mimeTypeFromExtension(filename: string) {
+  const extension = extname(filename).toLowerCase();
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.webp') return 'image/webp';
+  if (extension === '.gif') return 'image/gif';
+  if (extension === '.bmp') return 'image/bmp';
+  return 'image/png';
+}
+
+function parseOcrJson(content: unknown) {
+  if (typeof content !== 'string') return [];
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.regions) ? parsed.regions : [];
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) return [];
+    try {
+      const parsed = JSON.parse(match[0]);
+      return Array.isArray(parsed.regions) ? parsed.regions : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+function normalizeOcrRegion(region: any, imageWidth: number, imageHeight: number): OcrRegion | null {
+  const text = String(region.text ?? '').trim();
+  const x = Number(region.x);
+  const y = Number(region.y);
+  const width = Number(region.width);
+  const height = Number(region.height);
+  if (!text || ![x, y, width, height].every(Number.isFinite)) return null;
+  if (width <= 0 || height <= 0 || imageWidth <= 0 || imageHeight <= 0) return null;
+
+  return {
+    text,
+    xPercent: clampNumber((x / imageWidth) * 100, 0, 98),
+    yPercent: clampNumber((y / imageHeight) * 100, 0, 98),
+    widthPercent: clampNumber((width / imageWidth) * 100, 4, 60),
+    heightPercent: clampNumber((height / imageHeight) * 100, 4, 28)
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function validateRegionPayload(payload: any) {

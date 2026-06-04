@@ -25,7 +25,7 @@
           accept="image/*"
           class="upload-control"
         >
-          <el-button type="primary">上传图片</el-button>
+          <el-button type="primary" :loading="uploading">上传图片</el-button>
         </el-upload>
         <el-tooltip content="历史记录" placement="bottom">
           <el-button class="history-button" :icon="Expand" @click="openHistory" />
@@ -148,7 +148,8 @@
 
 <script setup lang="ts">
 import { Check, Delete, Expand, Microphone } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElLoading, ElMessage } from 'element-plus';
+import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
 type ReaderImage = {
@@ -190,20 +191,22 @@ const selectedLocalId = ref<string | null>(null);
 const historyVisible = ref(false);
 const creating = ref(false);
 const saving = ref(false);
+const uploading = ref(false);
 const imageFrameRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
 const audio = ref<HTMLAudioElement | null>(null);
 const editingLocalId = ref<string | null>(null);
+const uploadLoading = ref<LoadingInstance | null>(null);
 const dragging = ref<{ region: TextRegion; startX: number; startY: number; startRegionX: number; startRegionY: number } | null>(null);
 
 const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
 const tips = computed(() => {
   if (!currentImage.value) {
-    return ['上传图片后开始标注。', '点击右上角历史按钮可打开保存记录。'];
+    return ['上传图片后自动识别文字。', '点击右上角历史按钮可打开保存记录。'];
   }
   if (mode.value === 'edit') {
-    return ['点击“生成文字”，再点图片创建输入框。', '输入文字后点小对勾，标注会变成喇叭。', '拖动喇叭调整位置，再点“保存全部”。'];
+    return ['OCR 会自动生成喇叭标注。', '拖动喇叭调整位置，再点“保存全部”。', '漏识别时可点击“生成文字”手动补充。'];
   }
   return ['阅读模式：点击喇叭播放声音。', '想调整位置时，切回编辑模式拖动喇叭。', '历史记录可以回填图片和标注坐标。'];
 });
@@ -222,24 +225,43 @@ onBeforeUnmount(() => {
 });
 
 async function uploadImage(options: { file: File }) {
-  const body = new FormData();
-  const dimensions = await readImageDimensions(options.file);
-  body.append('image', options.file);
-  body.append('width', String(dimensions.width));
-  body.append('height', String(dimensions.height));
-  const response = await fetch('/api/images', { method: 'POST', body });
-  if (!response.ok) {
-    ElMessage.error('上传失败');
-    return;
+  uploading.value = true;
+  uploadLoading.value = ElLoading.service({
+    lock: true,
+    text: '正在上传图片并识别文字...',
+    background: 'rgba(243, 245, 248, 0.82)'
+  });
+  try {
+    const body = new FormData();
+    const dimensions = await readImageDimensions(options.file);
+    body.append('image', options.file);
+    body.append('width', String(dimensions.width));
+    body.append('height', String(dimensions.height));
+    const response = await fetch('/api/images', { method: 'POST', body });
+    if (!response.ok) {
+      ElMessage.error('上传失败');
+      return;
+    }
+    const data = await response.json();
+    currentImage.value = data.image;
+    regions.value = data.regions.map(normalizeRegion);
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    mode.value = 'edit';
+    if (data.ocrEnabled && regions.value.length === 0) {
+      ElMessage.warning('已上传图片，但暂未识别到文字');
+    } else if (data.ocrEnabled && regions.value.length > 0) {
+      ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击“保存全部”。');
+    }
+    await nextTick();
+    updateFrameSize();
+  } catch {
+    ElMessage.error('上传或识别失败');
+  } finally {
+    uploading.value = false;
+    uploadLoading.value?.close();
+    uploadLoading.value = null;
   }
-  const data = await response.json();
-  currentImage.value = data.image;
-  regions.value = data.regions.map(normalizeRegion);
-  selectedLocalId.value = null;
-  editingLocalId.value = null;
-  mode.value = 'edit';
-  await nextTick();
-  updateFrameSize();
 }
 
 async function reloadImage() {
@@ -475,9 +497,15 @@ function updateFrameSize() {
 
 function regionStyle(region: TextRegion) {
   if (isIconRegion(region)) {
+    const iconWidthPercent = (38 / frameSize.value.width) * 100;
+    const iconHeightPercent = (38 / frameSize.value.height) * 100;
+    const centeredX = region.xPercent + region.widthPercent / 2 - iconWidthPercent / 2;
+    const aboveY = region.yPercent - iconHeightPercent - 1;
+    const belowY = region.yPercent + region.heightPercent + 1;
+
     return {
-      left: `${region.xPercent}%`,
-      top: `${region.yPercent}%`
+      left: `${clamp(centeredX, 0, 100 - iconWidthPercent)}%`,
+      top: `${clamp(aboveY >= 0 ? aboveY : belowY, 0, 100 - iconHeightPercent)}%`
     };
   }
   return {
@@ -497,7 +525,7 @@ function normalizeRegion(region: any): TextRegion {
     yPercent: Number(region.yPercent),
     widthPercent: Number(region.widthPercent ?? 18),
     heightPercent: Number(region.heightPercent ?? 8),
-    localIconReady: false
+    localIconReady: !region.id && Boolean(region.text)
   };
 }
 

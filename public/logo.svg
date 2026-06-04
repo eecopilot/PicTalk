@@ -1,0 +1,71 @@
+<svg width="640" height="126" viewBox="36 18 640 126" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="textFill" x1="40" y1="42" x2="682" y2="132" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8EA7FF"/>
+      <stop offset="0.28" stop-color="#78D8F7"/>
+      <stop offset="0.52" stop-color="#BFF077"/>
+      <stop offset="0.74" stop-color="#FFD47A"/>
+      <stop offset="1" stop-color="#FF85A9"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="72" y1="32" x2="600" y2="126" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.62"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.38"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-20%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="4" flood-color="#62B7E5" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <text
+      x="48"
+      y="118"
+      font-family="Arial Rounded MT Bold, PingFang SC, Microsoft YaHei, sans-serif"
+      font-size="82"
+      font-weight="900"
+      letter-spacing="4"
+      stroke="#BCEBFF"
+      stroke-width="28"
+      stroke-linejoin="round"
+      paint-order="stroke fill"
+      fill="url(#textFill)"
+    >图片点读机</text>
+    <text
+      x="48"
+      y="118"
+      font-family="Arial Rounded MT Bold, PingFang SC, Microsoft YaHei, sans-serif"
+      font-size="82"
+      font-weight="900"
+      letter-spacing="4"
+      stroke="#FFFFFF"
+      stroke-width="20"
+      stroke-linejoin="round"
+      paint-order="stroke fill"
+      fill="url(#textFill)"
+    >图片点读机</text>
+    <text
+      x="48"
+      y="118"
+      font-family="Arial Rounded MT Bold, PingFang SC, Microsoft YaHei, sans-serif"
+      font-size="82"
+      font-weight="900"
+      letter-spacing="4"
+      stroke="#2C6F96"
+      stroke-width="6"
+      stroke-linejoin="round"
+      paint-order="stroke fill"
+      fill="url(#textFill)"
+    >图片点读机</text>
+    <text
+      x="48"
+      y="118"
+      font-family="Arial Rounded MT Bold, PingFang SC, Microsoft YaHei, sans-serif"
+      font-size="82"
+      font-weight="900"
+      letter-spacing="4"
+      fill="url(#shine)"
+      opacity="0.8"
+    >图片点读机</text>
+  </g>
+</svg>

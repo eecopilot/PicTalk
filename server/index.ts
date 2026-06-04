@@ -28,6 +28,14 @@ type RegionRow = {
   updated_at: string;
 };
 
+type SaveRecordRow = {
+  id: number;
+  image_id: number;
+  image_name: string;
+  region_count: number;
+  created_at: string;
+};
+
 const PORT = Number(process.env.PORT ?? 8787);
 const UNITY2_API_KEY = process.env.UNITY2_API_KEY ?? '';
 const dataDir = join(process.cwd(), 'data');
@@ -59,6 +67,15 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS save_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    image_id INTEGER NOT NULL,
+    image_name TEXT NOT NULL,
+    region_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+  );
 `);
 
 const app = new Hono();
@@ -66,6 +83,21 @@ app.use('/api/*', cors());
 app.use('/uploads/*', serveStatic({ root: './public' }));
 
 app.get('/api/health', (c) => c.json({ ok: true, unity2Configured: Boolean(UNITY2_API_KEY) }));
+
+app.get('/api/save-records', (c) => {
+  return c.json({ records: getSaveRecords() });
+});
+
+app.delete('/api/save-records', (c) => {
+  db.prepare('DELETE FROM save_records').run();
+  return c.json({ ok: true });
+});
+
+app.delete('/api/save-records/:id', (c) => {
+  const result = db.prepare('DELETE FROM save_records WHERE id = ?').run(Number(c.req.param('id')));
+  if (result.changes === 0) return c.json({ error: 'record not found' }, 404);
+  return c.json({ ok: true });
+});
 
 app.post('/api/images', async (c) => {
   const form = await c.req.formData();
@@ -93,6 +125,35 @@ app.get('/api/images/:id', (c) => {
   const image = getImage(Number(c.req.param('id')));
   if (!image) return c.json({ error: 'image not found' }, 404);
   return c.json({ image, regions: getRegions(image.id) });
+});
+
+app.post('/api/images/:id/save-records', (c) => {
+  const imageId = Number(c.req.param('id'));
+  const image = getImage(imageId);
+  if (!image) return c.json({ error: 'image not found' }, 404);
+
+  const regionCount = Number(
+    (db.prepare('SELECT COUNT(*) AS count FROM text_regions WHERE image_id = ?').get(imageId) as { count: number }).count
+  );
+  const recentRecord = db.prepare(`
+    SELECT *
+    FROM save_records
+    WHERE image_id = ?
+      AND region_count = ?
+      AND created_at >= datetime('now', '-1 minute')
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(image.id, regionCount) as SaveRecordRow | undefined;
+  if (recentRecord) {
+    return c.json({ record: mapSaveRecord(recentRecord), deduped: true });
+  }
+
+  const result = db.prepare(`
+    INSERT INTO save_records (image_id, image_name, region_count)
+    VALUES (?, ?, ?)
+  `).run(image.id, image.originalName, regionCount);
+
+  return c.json({ record: getSaveRecord(Number(result.lastInsertRowid)) }, 201);
 });
 
 app.post('/api/images/:id/text-regions', async (c) => {
@@ -172,6 +233,15 @@ function getRegions(imageId: number) {
   return (db.prepare('SELECT * FROM text_regions WHERE image_id = ? ORDER BY id').all(imageId) as RegionRow[]).map(mapRegion);
 }
 
+function getSaveRecord(id: number) {
+  const row = db.prepare('SELECT * FROM save_records WHERE id = ?').get(id) as SaveRecordRow | undefined;
+  return row ? mapSaveRecord(row) : null;
+}
+
+function getSaveRecords() {
+  return (db.prepare('SELECT * FROM save_records ORDER BY id DESC LIMIT 50').all() as SaveRecordRow[]).map(mapSaveRecord);
+}
+
 function mapRegion(row: RegionRow) {
   return {
     id: row.id,
@@ -183,6 +253,16 @@ function mapRegion(row: RegionRow) {
     heightPercent: row.height_percent,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapSaveRecord(row: SaveRecordRow) {
+  return {
+    id: row.id,
+    imageId: row.image_id,
+    imageName: row.image_name,
+    regionCount: row.region_count,
+    createdAt: row.created_at
   };
 }
 

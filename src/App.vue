@@ -2,18 +2,72 @@
   <main class="app-shell">
     <header class="top-bar">
       <div>
-        <h1>图片点读机</h1>
-        <p>{{ statusText }}</p>
+        <h1>
+          <img class="brand-logo" src="/logo.svg?v=2" alt="图片点读机" />
+        </h1>
+        <el-carousel
+          class="tips-carousel"
+          height="24px"
+          direction="vertical"
+          indicator-position="none"
+          :interval="3600"
+          arrow="never"
+        >
+          <el-carousel-item v-for="tip in tips" :key="tip">
+            <p>{{ tip }}</p>
+          </el-carousel-item>
+        </el-carousel>
       </div>
-      <el-upload
-        :show-file-list="false"
-        :http-request="uploadImage"
-        accept="image/*"
-        class="upload-control"
-      >
-        <el-button type="primary">上传图片</el-button>
-      </el-upload>
+      <div class="top-actions">
+        <el-upload
+          :show-file-list="false"
+          :http-request="uploadImage"
+          accept="image/*"
+          class="upload-control"
+        >
+          <el-button type="primary">上传图片</el-button>
+        </el-upload>
+        <el-tooltip content="历史记录" placement="bottom">
+          <el-button class="history-button" :icon="Expand" @click="openHistory" />
+        </el-tooltip>
+      </div>
     </header>
+
+    <el-drawer v-model="historyVisible" title="保存历史" direction="rtl" size="320px">
+      <div class="history-drawer">
+        <div v-if="saveRecords.length === 0" class="history-empty">暂无保存记录</div>
+        <div v-else class="history-list">
+          <article
+            v-for="record in saveRecords"
+            :key="record.id"
+            class="history-item"
+            role="button"
+            tabindex="0"
+            @click.prevent.stop="loadHistoryRecord(record)"
+            @keydown.enter.prevent.stop="loadHistoryRecord(record)"
+          >
+            <div class="history-item-content">
+              <strong>{{ record.imageName }}</strong>
+              <span>{{ record.regionCount }} 个点读标注</span>
+              <time>{{ formatDate(record.createdAt) }}</time>
+            </div>
+            <el-button
+              class="history-delete"
+              :icon="Delete"
+              circle
+              size="small"
+              title="删除历史"
+              @click.prevent.stop="deleteSaveRecord(record)"
+            />
+          </article>
+        </div>
+        <div v-if="saveRecords.length > 0" class="history-footer">
+          <el-button class="clear-history-button" type="danger" plain @click="clearSaveRecords">
+            清空历史
+          </el-button>
+        </div>
+      </div>
+    </el-drawer>
 
     <section class="stage" @click="handleStageClick">
       <div v-if="!currentImage" class="empty-state">
@@ -86,14 +140,14 @@
       <el-button :disabled="!selectedRegion || mode !== 'edit'" @click="deleteSelected">删除</el-button>
       <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
       <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
-        保存
+        保存全部
       </el-button>
     </footer>
   </main>
 </template>
 
 <script setup lang="ts">
-import { Check, Microphone } from '@element-plus/icons-vue';
+import { Check, Delete, Expand, Microphone } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
@@ -116,6 +170,14 @@ type TextRegion = {
   localIconReady?: boolean;
 };
 
+type SaveRecord = {
+  id: number;
+  imageId: number;
+  imageName: string;
+  regionCount: number;
+  createdAt: string;
+};
+
 const mode = ref<'edit' | 'read'>('edit');
 const modeOptions = [
   { label: '编辑', value: 'edit' },
@@ -123,7 +185,9 @@ const modeOptions = [
 ];
 const currentImage = ref<ReaderImage | null>(null);
 const regions = ref<TextRegion[]>([]);
+const saveRecords = ref<SaveRecord[]>([]);
 const selectedLocalId = ref<string | null>(null);
+const historyVisible = ref(false);
 const creating = ref(false);
 const saving = ref(false);
 const imageFrameRef = ref<HTMLDivElement | null>(null);
@@ -134,15 +198,21 @@ const editingLocalId = ref<string | null>(null);
 const dragging = ref<{ region: TextRegion; startX: number; startY: number; startRegionX: number; startRegionY: number } | null>(null);
 
 const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
-const statusText = computed(() => {
-  if (!currentImage.value) return '上传图片后，点击底部“生成文字”开始标注。';
-  return mode.value === 'edit' ? '编辑模式：创建、拖动并保存文字区域。' : '阅读模式：点击文字区域播放声音。';
+const tips = computed(() => {
+  if (!currentImage.value) {
+    return ['上传图片后开始标注。', '点击右上角历史按钮可打开保存记录。'];
+  }
+  if (mode.value === 'edit') {
+    return ['点击“生成文字”，再点图片创建输入框。', '输入文字后点小对勾，标注会变成喇叭。', '拖动喇叭调整位置，再点“保存全部”。'];
+  }
+  return ['阅读模式：点击喇叭播放声音。', '想调整位置时，切回编辑模式拖动喇叭。', '历史记录可以回填图片和标注坐标。'];
 });
 
 onMounted(() => {
   window.addEventListener('resize', updateFrameSize);
   window.addEventListener('pointermove', handlePointerMove);
   window.addEventListener('pointerup', stopDrag);
+  loadSaveRecords();
 });
 
 onBeforeUnmount(() => {
@@ -186,6 +256,54 @@ async function reloadImage() {
   editingLocalId.value = null;
   await nextTick();
   updateFrameSize();
+}
+
+async function loadSaveRecords() {
+  const response = await fetch('/api/save-records');
+  if (!response.ok) return;
+  const data = await response.json();
+  saveRecords.value = data.records;
+}
+
+async function openHistory() {
+  await loadSaveRecords();
+  historyVisible.value = true;
+}
+
+async function loadHistoryRecord(record: SaveRecord) {
+  const response = await fetch(`/api/images/${record.imageId}`);
+  if (!response.ok) {
+    ElMessage.error('加载历史记录失败');
+    return;
+  }
+  const data = await response.json();
+  currentImage.value = data.image;
+  regions.value = data.regions.map(normalizeRegion);
+  selectedLocalId.value = null;
+  editingLocalId.value = null;
+  creating.value = false;
+  mode.value = 'read';
+  historyVisible.value = false;
+  await nextTick();
+  updateFrameSize();
+}
+
+async function deleteSaveRecord(record: SaveRecord) {
+  const response = await fetch(`/api/save-records/${record.id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    ElMessage.error('删除历史失败');
+    return;
+  }
+  saveRecords.value = saveRecords.value.filter((item) => item.id !== record.id);
+}
+
+async function clearSaveRecords() {
+  const response = await fetch('/api/save-records', { method: 'DELETE' });
+  if (!response.ok) {
+    ElMessage.error('清空历史失败');
+    return;
+  }
+  saveRecords.value = [];
 }
 
 function handleStageClick(event: MouseEvent) {
@@ -254,6 +372,8 @@ async function saveRegions() {
       saved.push(normalizeRegion(data.region));
     }
     regions.value = saved;
+    await createSaveRecord();
+    await loadSaveRecords();
     selectedLocalId.value = null;
     editingLocalId.value = null;
     mode.value = 'read';
@@ -263,6 +383,12 @@ async function saveRegions() {
   } finally {
     saving.value = false;
   }
+}
+
+async function createSaveRecord() {
+  if (!currentImage.value) return;
+  const response = await fetch(`/api/images/${currentImage.value.id}/save-records`, { method: 'POST' });
+  if (!response.ok) throw new Error('save record failed');
 }
 
 async function deleteSelected() {
@@ -393,5 +519,14 @@ function readImageDimensions(file: File) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 </script>

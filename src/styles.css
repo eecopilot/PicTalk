@@ -30,8 +30,8 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  height: 72px;
-  padding: 10px 18px;
+  height: 78px;
+  padding: 8px 18px 10px;
   border-bottom: 1px solid #d9dee8;
   background: rgba(248, 250, 252, 0.94);
   backdrop-filter: blur(10px);
@@ -39,14 +39,142 @@ input {
 
 .top-bar h1 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 700;
+  line-height: 1;
 }
 
-.top-bar p {
+.brand-logo {
+  display: block;
+  width: 220px;
+  height: auto;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.el-button.history-button {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.tips-carousel {
+  width: min(520px, calc(100vw - 360px));
+  margin-top: 4px;
+}
+
+.tips-carousel p {
   margin: 4px 0 0;
   color: #657082;
   font-size: 13px;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 20px 0;
+  color: #768196;
+  text-align: center;
+}
+
+.el-drawer {
+  display: flex;
+  flex-direction: column;
+}
+
+.el-drawer__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.history-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.history-item-content {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.history-item:hover {
+  border-color: #73a2f8;
+  box-shadow: 0 8px 22px rgba(58, 97, 166, 0.12);
+  transform: translateY(-1px);
+}
+
+.history-item strong {
+  overflow: hidden;
+  color: #20252d;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item span,
+.history-item time {
+  color: #657082;
+  font-size: 12px;
+}
+
+.history-delete {
+  flex: 0 0 auto;
+  margin-left: 10px;
+}
+
+.history-footer {
+  flex: 0 0 auto;
+  padding-top: 14px;
+  border-top: 1px solid #e3e8f1;
+}
+
+.clear-history-button {
+  width: 100%;
+  height: 42px;
+  border-radius: 8px;
+  font-weight: 700;
 }
 
 .upload-control {
@@ -57,8 +185,8 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 98px);
-  padding-top: 72px;
+  min-height: calc(100vh - 104px);
+  padding-top: 78px;
 }
 
 .empty-state {
@@ -234,17 +362,32 @@ input {
 
 @media (max-width: 720px) {
   .top-bar {
-    height: 84px;
+    height: 88px;
     align-items: flex-start;
   }
 
-  .top-bar p {
+  .el-button.history-button {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
+  .brand-logo {
+    width: 172px;
+  }
+
+  .tips-carousel {
     max-width: 190px;
+    width: 190px;
+  }
+
+  .tips-carousel p {
+    margin-top: 0;
   }
 
   .stage {
     min-height: calc(100vh - 116px);
-    padding-top: 84px;
+    padding-top: 88px;
   }
 
   .bottom-toolbar {

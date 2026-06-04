@@ -11,10 +11,16 @@ https://github.com/eecopilot/PicTalk/blob/main/public/demo/pic-talk-ocr-demo.mp4
 
 ## 功能截图
 
+效果
 ![PicTalk site](public/demo/site.png)
 
+上传
 ![OCR upload](public/demo/ocr-upload.png)
 
+可以人工编辑
+![OCR edit](public/demo/ocr-edit.png)
+
+点读
 ![OCR result](public/demo/ocr-result.png)
 
 ## 怎么跑

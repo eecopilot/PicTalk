@@ -7,7 +7,15 @@
 
 ## 演示视频
 
-https://github.com/eecopilot/PicTalk/blob/main/public/demo/pic-talk-demo.mp4
+https://github.com/eecopilot/PicTalk/blob/main/public/demo/pic-talk-ocr-demo.mp4
+
+## 功能截图
+
+![PicTalk site](public/demo/site.png)
+
+![OCR upload](public/demo/ocr-upload.png)
+
+![OCR result](public/demo/ocr-result.png)
 
 ## 怎么跑
 clone 仓库：

@@ -429,7 +429,7 @@ function handleRegionClick(region: TextRegion) {
     playRegion(region);
     return;
   }
-  if (mode.value === 'edit' && !region.localIconReady) editingLocalId.value = region.localId;
+  if (mode.value === 'edit') expandRegion(region);
 }
 
 function collapseRegion(region: TextRegion) {
@@ -438,11 +438,24 @@ function collapseRegion(region: TextRegion) {
     return;
   }
   region.text = region.text.trim();
-  region.iconXPercent = iconXPercent(region);
-  region.iconYPercent = iconYPercent(region);
+  region.iconXPercent = iconXPercentFromBox(region);
+  region.iconYPercent = iconYPercentFromBox(region);
   region.localIconReady = true;
   selectedLocalId.value = region.localId;
   editingLocalId.value = null;
+}
+
+function expandRegion(region: TextRegion) {
+  if (isIconRegion(region)) {
+    const iconWidthPercent = iconPixelWidthPercent();
+    const iconHeightPercent = iconPixelHeightPercent();
+    const nextX = iconXPercent(region) + iconWidthPercent / 2 - region.widthPercent / 2;
+    const nextY = iconYPercent(region) + iconHeightPercent / 2 - region.heightPercent / 2;
+    region.xPercent = clamp(nextX, 0, Math.max(0, 100 - region.widthPercent));
+    region.yPercent = clamp(nextY, 0, Math.max(0, 100 - region.heightPercent));
+  }
+  region.localIconReady = false;
+  editingLocalId.value = region.localId;
 }
 
 async function saveRegions() {
@@ -570,7 +583,7 @@ function isIconRegion(region: TextRegion) {
 }
 
 function isEditingRegion(region: TextRegion) {
-  return mode.value === 'edit' && (!region.confirmed || editingLocalId.value === region.localId) && !region.localIconReady;
+  return mode.value === 'edit' && (!region.confirmed || editingLocalId.value === region.localId) && !isIconRegion(region);
 }
 
 function isPersistedRegion(region: TextRegion) {
@@ -622,12 +635,9 @@ function updateFrameSize() {
 
 function regionStyle(region: TextRegion) {
   if (isIconRegion(region)) {
-    const iconWidthPercent = (38 / frameSize.value.width) * 100;
-    const iconHeightPercent = (38 / frameSize.value.height) * 100;
-
     return {
-      left: `${clamp(iconXPercent(region), 0, 100 - iconWidthPercent)}%`,
-      top: `${clamp(iconYPercent(region), 0, 100 - iconHeightPercent)}%`
+      left: `${clamp(iconXPercent(region), 0, 100 - iconPixelWidthPercent())}%`,
+      top: `${clamp(iconYPercent(region), 0, 100 - iconPixelHeightPercent())}%`
     };
   }
   return {
@@ -657,16 +667,32 @@ function normalizeRegion(region: any): TextRegion {
 
 function iconXPercent(region: TextRegion) {
   if (typeof region.iconXPercent === 'number') return region.iconXPercent;
-  const iconWidthPercent = (38 / frameSize.value.width) * 100;
-  return clamp(region.xPercent + region.widthPercent / 2 - iconWidthPercent / 2, 0, 100 - iconWidthPercent);
+  return iconXPercentFromBox(region);
 }
 
 function iconYPercent(region: TextRegion) {
   if (typeof region.iconYPercent === 'number') return region.iconYPercent;
-  const iconHeightPercent = (38 / frameSize.value.height) * 100;
+  return iconYPercentFromBox(region);
+}
+
+function iconXPercentFromBox(region: TextRegion) {
+  const iconWidthPercent = iconPixelWidthPercent();
+  return clamp(region.xPercent + region.widthPercent / 2 - iconWidthPercent / 2, 0, 100 - iconWidthPercent);
+}
+
+function iconYPercentFromBox(region: TextRegion) {
+  const iconHeightPercent = iconPixelHeightPercent();
   const aboveY = region.yPercent - iconHeightPercent - 1;
   const belowY = region.yPercent + region.heightPercent + 1;
   return clamp(aboveY >= 0 ? aboveY : belowY, 0, 100 - iconHeightPercent);
+}
+
+function iconPixelWidthPercent() {
+  return (38 / frameSize.value.width) * 100;
+}
+
+function iconPixelHeightPercent() {
+  return (38 / frameSize.value.height) * 100;
 }
 
 function readImageDimensions(file: File) {

@@ -42,6 +42,20 @@ type SaveRecordRow = {
   created_at: string;
 };
 
+type BookRow = {
+  id: number;
+  name: string;
+  created_at: string;
+};
+
+type BookPageRow = {
+  id: number;
+  book_id: number;
+  image_id: number;
+  page_number: number;
+  created_at: string;
+};
+
 type OcrRegion = {
   text: string;
   xPercent: number;
@@ -112,6 +126,23 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS books (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS book_pages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id INTEGER NOT NULL,
+    image_id INTEGER NOT NULL,
+    page_number INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+    UNIQUE(book_id, page_number)
+  );
 `);
 migrateDatabase();
 
@@ -126,6 +157,71 @@ app.get('/api/health', (c) => c.json({ ok: true, openaiConfigured: Boolean(OPENA
 
 app.get('/api/save-records', (c) => {
   return c.json({ records: getSaveRecords() });
+});
+
+app.get('/api/books', (c) => {
+  return c.json({ books: getBooks() });
+});
+
+app.post('/api/books', async (c) => {
+  const payload = await c.req.json();
+  const name = String(payload.name ?? '').trim();
+  if (!name) return c.json({ error: 'name is required' }, 400);
+
+  const result = db.prepare('INSERT INTO books (name) VALUES (?)').run(name);
+  const book = getBook(Number(result.lastInsertRowid));
+  return c.json({ book }, 201);
+});
+
+app.get('/api/books/:id', (c) => {
+  const book = getBook(Number(c.req.param('id')));
+  if (!book) return c.json({ error: 'book not found' }, 404);
+
+  const pages = getBookPages(book.id);
+  return c.json({ book, pages });
+});
+
+app.put('/api/books/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!getBook(id)) return c.json({ error: 'book not found' }, 404);
+
+  const payload = await c.req.json();
+  const name = String(payload.name ?? '').trim();
+  if (!name) return c.json({ error: 'name is required' }, 400);
+
+  db.prepare('UPDATE books SET name = ? WHERE id = ?').run(name, id);
+  return c.json({ book: getBook(id) });
+});
+
+app.delete('/api/books/:id', (c) => {
+  const result = db.prepare('DELETE FROM books WHERE id = ?').run(Number(c.req.param('id')));
+  if (result.changes === 0) return c.json({ error: 'book not found' }, 404);
+  return c.json({ ok: true });
+});
+
+app.post('/api/books/:id/pages', async (c) => {
+  const bookId = Number(c.req.param('id'));
+  if (!getBook(bookId)) return c.json({ error: 'book not found' }, 404);
+
+  const payload = await c.req.json();
+  const imageId = Number(payload.imageId);
+  if (!getImage(imageId)) return c.json({ error: 'image not found' }, 400);
+
+  const maxPage = db.prepare('SELECT MAX(page_number) as max FROM book_pages WHERE book_id = ?').get(bookId) as { max: number | null };
+  const pageNumber = (maxPage?.max ?? 0) + 1;
+
+  const result = db.prepare('INSERT INTO book_pages (book_id, image_id, page_number) VALUES (?, ?, ?)').run(bookId, imageId, pageNumber);
+  const page = getBookPage(Number(result.lastInsertRowid));
+  return c.json({ page }, 201);
+});
+
+app.delete('/api/books/:bookId/pages/:pageId', (c) => {
+  const result = db.prepare('DELETE FROM book_pages WHERE id = ? AND book_id = ?').run(
+    Number(c.req.param('pageId')),
+    Number(c.req.param('bookId'))
+  );
+  if (result.changes === 0) return c.json({ error: 'page not found' }, 404);
+  return c.json({ ok: true });
 });
 
 app.delete('/api/save-records', (c) => {
@@ -477,6 +573,40 @@ function getSaveRecord(id: number) {
 
 function getSaveRecords() {
   return (db.prepare('SELECT * FROM save_records ORDER BY id DESC LIMIT 50').all() as SaveRecordRow[]).map(mapSaveRecord);
+}
+
+function getBook(id: number) {
+  const row = db.prepare('SELECT * FROM books WHERE id = ?').get(id) as BookRow | undefined;
+  return row ? mapBook(row) : null;
+}
+
+function getBooks() {
+  return (db.prepare('SELECT * FROM books ORDER BY id DESC').all() as BookRow[]).map(mapBook);
+}
+
+function getBookPage(id: number) {
+  const row = db.prepare('SELECT * FROM book_pages WHERE id = ?').get(id) as BookPageRow | undefined;
+  if (!row) return null;
+  const image = getImage(row.image_id);
+  return image ? { id: row.id, bookId: row.book_id, pageNumber: row.page_number, image, regions: getRegions(row.image_id) } : null;
+}
+
+function getBookPages(bookId: number) {
+  const rows = db.prepare('SELECT * FROM book_pages WHERE book_id = ? ORDER BY page_number').all(bookId) as BookPageRow[];
+  return rows
+    .map((row) => {
+      const image = getImage(row.image_id);
+      return image ? { id: row.id, bookId: row.book_id, pageNumber: row.page_number, image, regions: getRegions(row.image_id) } : null;
+    })
+    .filter((page): page is NonNullable<typeof page> => Boolean(page));
+}
+
+function mapBook(row: BookRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at
+  };
 }
 
 function mapRegion(row: RegionRow) {

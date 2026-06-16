@@ -25,7 +25,7 @@
           accept="image/*"
           class="upload-control"
         >
-          <el-button type="primary" :loading="uploading">上传图片</el-button>
+          <el-button type="primary" :loading="uploading">{{ currentBook ? '添加新页' : '上传图片' }}</el-button>
         </el-upload>
         <el-button class="history-button" :icon="Expand" @click="openHistory" />
       </div>
@@ -33,33 +33,69 @@
 
     <el-drawer v-model="historyVisible" title="保存历史" direction="rtl" size="320px">
       <div class="history-drawer">
-        <div v-if="saveRecords.length === 0" class="history-empty">暂无保存记录</div>
-        <div v-else class="history-list">
-          <article
-            v-for="record in saveRecords"
-            :key="record.id"
-            class="history-item"
-            role="button"
-            tabindex="0"
-            @click.prevent.stop="loadHistoryRecord(record)"
-            @keydown.enter.prevent.stop="loadHistoryRecord(record)"
-          >
-            <div class="history-item-content">
-              <strong>{{ record.imageName }}</strong>
-              <span>{{ record.regionCount }} 个点读标注</span>
-              <time>{{ formatDate(record.createdAt) }}</time>
-            </div>
-            <el-button
-              class="history-delete"
-              :icon="Delete"
-              circle
-              size="small"
-              title="删除历史"
-              @click.prevent.stop="deleteSaveRecord(record)"
-            />
-          </article>
+        <el-segmented v-model="historyTab" :options="historyTabOptions" />
+
+        <div v-if="historyTab === 'books'" class="history-content">
+          <div class="create-book-button-wrapper">
+            <el-button type="primary" :icon="Plus" @click="openCreateBookDialog">创建新书本</el-button>
+          </div>
+          <div v-if="books.length === 0" class="history-empty">暂无书本</div>
+          <div v-else class="history-list">
+            <article
+              v-for="book in books"
+              :key="book.id"
+              class="history-item"
+              role="button"
+              tabindex="0"
+              @click.prevent.stop="loadBook(book)"
+              @keydown.enter.prevent.stop="loadBook(book)"
+            >
+              <div class="history-item-content">
+                <strong>{{ book.name }}</strong>
+                <time>{{ formatDate(book.createdAt) }}</time>
+              </div>
+              <el-button
+                class="history-delete"
+                :icon="Delete"
+                circle
+                size="small"
+                title="删除书本"
+                @click.prevent.stop="deleteBook(book)"
+              />
+            </article>
+          </div>
         </div>
-        <div v-if="saveRecords.length > 0" class="history-footer">
+
+        <div v-if="historyTab === 'records'" class="history-content">
+          <div v-if="saveRecords.length === 0" class="history-empty">暂无保存记录</div>
+          <div v-else class="history-list">
+            <article
+              v-for="record in saveRecords"
+              :key="record.id"
+              class="history-item"
+              role="button"
+              tabindex="0"
+              @click.prevent.stop="loadHistoryRecord(record)"
+              @keydown.enter.prevent.stop="loadHistoryRecord(record)"
+            >
+              <div class="history-item-content">
+                <strong>{{ record.imageName }}</strong>
+                <span>{{ record.regionCount }} 个点读标注</span>
+                <time>{{ formatDate(record.createdAt) }}</time>
+              </div>
+              <el-button
+                class="history-delete"
+                :icon="Delete"
+                circle
+                size="small"
+                title="删除历史"
+                @click.prevent.stop="deleteSaveRecord(record)"
+              />
+            </article>
+          </div>
+        </div>
+
+        <div v-if="saveRecords.length > 0 || books.length > 0" class="history-footer">
           <el-button class="clear-history-button" type="danger" plain @click="clearSaveRecords">
             清空历史
           </el-button>
@@ -87,6 +123,33 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="createBookDialogVisible" title="创建新书本" width="520px">
+      <div class="create-book-dialog">
+        <el-form label-position="top">
+          <el-form-item label="书本名称">
+            <el-input v-model="newBookName" placeholder="例如：小学英语课本第一册" clearable />
+          </el-form-item>
+          <el-form-item label="上传页面（可选）">
+            <el-upload
+              v-model:file-list="bookUploadFiles"
+              :auto-upload="false"
+              accept="image/*"
+              multiple
+              list-type="picture-card"
+              :limit="50"
+            >
+              <el-icon class="upload-icon-small"><Plus /></el-icon>
+            </el-upload>
+          </el-form-item>
+          <div class="upload-tip">可以先创建空书本，稍后在"编辑页面"中添加图片</div>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="createBookDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creatingBook" @click="createBook">创建</el-button>
+      </template>
+    </el-dialog>
+
     <button v-if="isFullscreen" class="exit-fullscreen" @click="exitFullscreen">
       <el-icon><Close /></el-icon>
     </button>
@@ -98,6 +161,26 @@
     >
       <el-icon><FullScreen /></el-icon>
     </button>
+
+    <button
+      v-if="currentBook && bookPages.length > 1 && currentPageIndex > 0"
+      class="prev-page"
+      @click="previousPage"
+    >
+      <el-icon><ArrowLeft /></el-icon>
+    </button>
+
+    <button
+      v-if="currentBook && bookPages.length > 1 && currentPageIndex < bookPages.length - 1"
+      class="next-page"
+      @click="nextPage"
+    >
+      <el-icon><ArrowRight /></el-icon>
+    </button>
+
+    <div v-if="currentBook && bookPages.length > 1" class="page-indicator">
+      {{ currentPageIndex + 1 }} / {{ bookPages.length }}
+    </div>
 
     <section class="stage" @click="handleStageClick">
       <div v-if="!currentImage" class="empty-state">
@@ -178,34 +261,50 @@
         <el-segmented v-model="mode" :options="modeOptions" />
       </div>
 
-      <el-button-group class="toolbar-section">
-        <el-button :type="creating ? 'primary' : 'default'" :disabled="!currentImage || mode !== 'edit'" @click="creating = !creating">
-          生成文字
-        </el-button>
-        <el-button :disabled="!selectedRegion || mode !== 'edit'" @click="deleteSelected">删除</el-button>
+      <div class="toolbar-section" style="display: inline-flex;">
+        <el-tooltip content="请先切换到编辑模式" :disabled="mode === 'edit'" placement="top">
+          <el-button :type="creating ? 'primary' : 'default'" :disabled="!currentImage || mode !== 'edit'" @click="creating = !creating">
+            生成文字
+          </el-button>
+        </el-tooltip>
         <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
-      </el-button-group>
+      </div>
 
       <div class="toolbar-section model-toolbar">
-        <el-segmented v-model="modelMode" :options="modelModeOptions" />
         <el-button-group v-if="modelMode === 'ai'">
           <el-button :disabled="!currentImage || mode !== 'edit'" :loading="ocrRefreshing" @click="refreshOcr">
             重新识别
           </el-button>
         </el-button-group>
-        <el-button-group v-else>
-          <el-button :disabled="!currentImage || mode !== 'edit'" :loading="importingRegions" @click="openImportDialog">
-            导入 JSON
-          </el-button>
+        <div v-else style="display: inline-flex;">
+          <el-tooltip content="请先切换到编辑模式" :disabled="mode === 'edit'" placement="top">
+            <el-button
+              :disabled="!currentImage || mode !== 'edit'"
+              :loading="importingRegions"
+              @click="openImportDialog"
+            >
+              导入 JSON
+            </el-button>
+          </el-tooltip>
           <el-button :disabled="!currentImage" @click="exportRegionsJson">
             导出 JSON
           </el-button>
-        </el-button-group>
+        </div>
       </div>
 
-      <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
-        保存全部
-      </el-button>
+      <div style="display: flex; gap: 8px;">
+        <el-button
+          v-if="currentBook && bookPages.length > 0"
+          type="danger"
+          :disabled="mode !== 'edit'"
+          @click="deleteCurrentPage"
+        >
+          删除当前页
+        </el-button>
+        <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
+          保存全部
+        </el-button>
+      </div>
     </footer>
 
     <audio ref="audioRef" class="reader-audio" preload="none" playsinline />
@@ -213,7 +312,7 @@
 </template>
 
 <script setup lang="ts">
-import { Check, Close, CopyDocument, Delete, Expand, FullScreen, Microphone } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, Check, Close, CopyDocument, Delete, Edit, Expand, FullScreen, Microphone, Plus } from '@element-plus/icons-vue';
 import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -248,22 +347,41 @@ type SaveRecord = {
   createdAt: string;
 };
 
+type Book = {
+  id: number;
+  name: string;
+  createdAt: string;
+};
+
+type BookPage = {
+  id: number;
+  bookId: number;
+  pageNumber: number;
+  image: ReaderImage;
+  regions: TextRegion[];
+};
+
 const mode = ref<'edit' | 'read'>('edit');
 const modeOptions = [
   { label: '编辑', value: 'edit' },
   { label: '阅读', value: 'read' }
 ];
-const modelMode = ref<'ai' | 'manual'>('ai');
-const modelModeOptions = [
-  { label: 'AI', value: 'ai' },
-  { label: '非AI', value: 'manual' }
-];
+const modelMode = ref<'ai' | 'manual'>('manual');
 const isFullscreen = ref(false);
 const currentImage = ref<ReaderImage | null>(null);
 const regions = ref<TextRegion[]>([]);
 const saveRecords = ref<SaveRecord[]>([]);
+const currentBook = ref<Book | null>(null);
+const bookPages = ref<BookPage[]>([]);
+const currentPageIndex = ref(0);
 const selectedLocalId = ref<string | null>(null);
 const historyVisible = ref(false);
+const historyTab = ref<'books' | 'records'>('records');
+const historyTabOptions = [
+  { label: '单图', value: 'records' },
+  { label: '书本', value: 'books' }
+];
+const books = ref<Book[]>([]);
 const creating = ref(false);
 const saving = ref(false);
 const ocrRefreshing = ref(false);
@@ -271,6 +389,10 @@ const uploading = ref(false);
 const importingRegions = ref(false);
 const importDialogVisible = ref(false);
 const importJsonText = ref('');
+const createBookDialogVisible = ref(false);
+const newBookName = ref('');
+const bookUploadFiles = ref<any[]>([]);
+const creatingBook = ref(false);
 const manualImportMode = ref(false);
 const imageFrameRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
@@ -342,21 +464,46 @@ async function uploadImage(options: { file: File }) {
       return;
     }
     const data = await response.json();
-    currentImage.value = data.image;
-    regions.value = data.regions.map(normalizeRegion);
-    selectedLocalId.value = null;
-    editingLocalId.value = null;
-    manualImportMode.value = Boolean(data.ocrError || (data.ocrEnabled && regions.value.length === 0));
-    modelMode.value = manualImportMode.value ? 'manual' : 'ai';
-    mode.value = 'edit';
-    if (data.cached && regions.value.length > 0) {
-      ElMessage.success('已从缓存加载这张图片和标注。');
-    } else if (data.cached) {
-      ElMessage.info('这张图片已存在，当前没有标注。');
-    } else if (data.ocrEnabled && regions.value.length === 0) {
-      ElMessage.warning(data.ocrError ? 'OCR 暂不可用，可切到“非AI”导入 JSON' : '已上传图片，但暂未识别到文字');
-    } else if (data.ocrEnabled && regions.value.length > 0) {
-      ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击“保存全部”。');
+
+    // 如果在书本模式下，添加到书本
+    if (currentBook.value) {
+      const pageResponse = await fetch(`/api/books/${currentBook.value.id}/pages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: data.image.id })
+      });
+      if (!pageResponse.ok) {
+        ElMessage.error('添加页面失败');
+        return;
+      }
+
+      // 重新加载书本数据
+      const bookResponse = await fetch(`/api/books/${currentBook.value.id}`);
+      if (bookResponse.ok) {
+        const bookData = await bookResponse.json();
+        bookPages.value = bookData.pages;
+        currentPageIndex.value = bookPages.value.length - 1; // 跳到新添加的页面
+        loadCurrentPage();
+        ElMessage.success('新页面添加成功');
+      }
+    } else {
+      // 单图模式
+      currentImage.value = data.image;
+      regions.value = data.regions.map(normalizeRegion);
+      selectedLocalId.value = null;
+      editingLocalId.value = null;
+      manualImportMode.value = Boolean(data.ocrError || (data.ocrEnabled && regions.value.length === 0));
+      modelMode.value = manualImportMode.value ? 'manual' : 'ai';
+      mode.value = 'edit';
+      if (data.cached && regions.value.length > 0) {
+        ElMessage.success('已从缓存加载这张图片和标注。');
+      } else if (data.cached) {
+        ElMessage.info('这张图片已存在，当前没有标注。');
+      } else if (data.ocrEnabled && regions.value.length === 0) {
+        ElMessage.warning(data.ocrError ? 'OCR 暂不可用，可切到”非AI”导入 JSON' : '已上传图片，但暂未识别到文字');
+      } else if (data.ocrEnabled && regions.value.length > 0) {
+        ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击”保存全部”。');
+      }
     }
     await nextTick();
     updateFrameSize();
@@ -382,7 +529,7 @@ async function reloadImage() {
   selectedLocalId.value = null;
   editingLocalId.value = null;
   manualImportMode.value = false;
-  modelMode.value = 'ai';
+  // 保持当前 modelMode，不强制修改
   await nextTick();
   updateFrameSize();
 }
@@ -394,9 +541,106 @@ async function loadSaveRecords() {
   saveRecords.value = data.records;
 }
 
+async function loadBooks() {
+  const response = await fetch('/api/books');
+  if (!response.ok) return;
+  const data = await response.json();
+  books.value = data.books;
+}
+
 async function openHistory() {
   await loadSaveRecords();
+  await loadBooks();
   historyVisible.value = true;
+}
+
+async function loadBook(book: Book) {
+  const response = await fetch(`/api/books/${book.id}`);
+  if (!response.ok) {
+    ElMessage.error('加载书本失败');
+    return;
+  }
+  const data = await response.json();
+  currentBook.value = data.book;
+  bookPages.value = data.pages;
+  currentPageIndex.value = 0;
+
+  historyVisible.value = false;
+
+  if (bookPages.value.length === 0) {
+    // 空书本直接进入编辑模式
+    currentImage.value = null;
+    regions.value = [];
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    mode.value = 'edit';
+    ElMessage.info('请上传图片添加新页');
+  } else {
+    // 有页面直接进入编辑模式，显示第1页
+    loadCurrentPage();
+    mode.value = 'edit';
+  }
+}
+
+async function deleteBook(book: Book) {
+  const response = await fetch(`/api/books/${book.id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    ElMessage.error('删除书本失败');
+    return;
+  }
+  books.value = books.value.filter((item) => item.id !== book.id);
+}
+
+async function deleteCurrentPage() {
+  if (!currentBook.value || !currentImage.value) return;
+
+  const currentPage = bookPages.value[currentPageIndex.value];
+  if (!currentPage) return;
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除第 ${currentPageIndex.value + 1} 页吗？`,
+      '删除页面',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    );
+  } catch {
+    return;
+  }
+
+  const response = await fetch(`/api/books/${currentBook.value.id}/pages/${currentPage.id}`, {
+    method: 'DELETE'
+  });
+
+  if (!response.ok) {
+    ElMessage.error('删除页面失败');
+    return;
+  }
+
+  // 从列表中移除
+  bookPages.value.splice(currentPageIndex.value, 1);
+
+  // 处理删除后的跳转
+  if (bookPages.value.length === 0) {
+    // 书本变空
+    currentImage.value = null;
+    regions.value = [];
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    ElMessage.success('页面已删除，书本现在为空');
+  } else if (currentPageIndex.value >= bookPages.value.length) {
+    // 删除的是最后一页，跳到前一页
+    currentPageIndex.value = bookPages.value.length - 1;
+    loadCurrentPage();
+    ElMessage.success('页面已删除');
+  } else {
+    // 删除中间页，当前索引不变（显示下一页）
+    loadCurrentPage();
+    ElMessage.success('页面已删除');
+  }
 }
 
 async function loadHistoryRecord(record: SaveRecord) {
@@ -406,13 +650,16 @@ async function loadHistoryRecord(record: SaveRecord) {
     return;
   }
   const data = await response.json();
+  currentBook.value = null;
+  bookPages.value = [];
+  currentPageIndex.value = 0;
   currentImage.value = data.image;
   regions.value = data.regions.map(normalizeRegion);
   selectedLocalId.value = null;
   editingLocalId.value = null;
   creating.value = false;
   manualImportMode.value = false;
-  modelMode.value = 'ai';
+  // 保持默认的 manual 模式，不强制设置为 ai
   mode.value = 'read';
   historyVisible.value = false;
   await nextTick();
@@ -786,6 +1033,12 @@ async function saveRegions() {
       saved.push(normalizeRegion({ ...data.region, confirmed: true }));
     }
     regions.value = saved;
+
+    // 如果在书本模式，更新 bookPages 中的当前页数据
+    if (currentBook.value && bookPages.value[currentPageIndex.value]) {
+      bookPages.value[currentPageIndex.value].regions = saved;
+    }
+
     await createSaveRecord();
     await loadSaveRecords();
     selectedLocalId.value = null;
@@ -822,6 +1075,11 @@ async function deleteRegion(region: TextRegion) {
   regions.value = regions.value.filter((item) => item.localId !== region.localId);
   selectedLocalId.value = null;
   editingLocalId.value = null;
+
+  // 如果在书本模式，更新 bookPages 中的当前页数据
+  if (currentBook.value && bookPages.value[currentPageIndex.value]) {
+    bookPages.value[currentPageIndex.value].regions = [...regions.value];
+  }
 }
 
 function playRegion(region: TextRegion) {
@@ -1052,6 +1310,102 @@ function formatDate(value: string) {
   });
 }
 
+function openCreateBookDialog() {
+  newBookName.value = '';
+  bookUploadFiles.value = [];
+  createBookDialogVisible.value = true;
+}
+
+async function createBook() {
+  const name = newBookName.value.trim();
+  if (!name) {
+    ElMessage.warning('请输入书本名称');
+    return;
+  }
+
+  creatingBook.value = true;
+
+  // 如果有上传图片，显示加载提示
+  if (bookUploadFiles.value.length > 0) {
+    uploadLoading.value = ElLoading.service({
+      lock: true,
+      text: `正在创建书本，上传 ${bookUploadFiles.value.length} 张图片...`,
+      background: 'rgba(243, 245, 248, 0.82)'
+    });
+  }
+
+  try {
+    // 创建书本
+    const bookResponse = await fetch('/api/books', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (!bookResponse.ok) throw new Error('创建书本失败');
+    const bookData = await bookResponse.json();
+    const book = bookData.book;
+
+    // 如果有图片，上传所有图片并添加到书本
+    if (bookUploadFiles.value.length > 0) {
+      for (let i = 0; i < bookUploadFiles.value.length; i++) {
+        const file = bookUploadFiles.value[i].raw;
+        const dimensions = await readImageDimensions(file);
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('width', String(dimensions.width));
+        formData.append('height', String(dimensions.height));
+
+        const imageResponse = await fetch('/api/images', { method: 'POST', body: formData });
+        if (!imageResponse.ok) throw new Error(`上传第 ${i + 1} 张图片失败`);
+        const imageData = await imageResponse.json();
+
+        const pageResponse = await fetch(`/api/books/${book.id}/pages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageId: imageData.image.id })
+        });
+        if (!pageResponse.ok) throw new Error(`添加第 ${i + 1} 页失败`);
+      }
+      ElMessage.success(`书本「${name}」创建成功，共 ${bookUploadFiles.value.length} 页`);
+    } else {
+      ElMessage.success(`空书本「${name}」创建成功`);
+    }
+
+    createBookDialogVisible.value = false;
+
+    // 重新加载书本列表
+    await loadBooks();
+
+    // 重新获取完整书本数据（包含所有页面）
+    const fullBookResponse = await fetch(`/api/books/${book.id}`);
+    if (fullBookResponse.ok) {
+      const fullBookData = await fullBookResponse.json();
+      currentBook.value = fullBookData.book;
+      bookPages.value = fullBookData.pages;
+      currentPageIndex.value = 0;
+
+      if (bookPages.value.length === 0) {
+        // 空书本直接进入编辑模式
+        currentImage.value = null;
+        regions.value = [];
+        selectedLocalId.value = null;
+        editingLocalId.value = null;
+        mode.value = 'edit';
+      } else {
+        // 有页面直接进入编辑模式，显示第1页
+        loadCurrentPage();
+        mode.value = 'edit';
+      }
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '创建书本失败');
+  } finally {
+    creatingBook.value = false;
+    uploadLoading.value?.close();
+    uploadLoading.value = null;
+  }
+}
+
 function enterFullscreen() {
   isFullscreen.value = true;
   nextTick(() => updateFrameSize());
@@ -1065,6 +1419,92 @@ function exitFullscreen() {
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && isFullscreen.value) {
     exitFullscreen();
+    return;
   }
+
+  if (currentBook.value && bookPages.value.length > 1 && !editingLocalId.value) {
+    if (event.key === 'ArrowLeft' && currentPageIndex.value > 0) {
+      event.preventDefault();
+      previousPage();
+    } else if (event.key === 'ArrowRight' && currentPageIndex.value < bookPages.value.length - 1) {
+      event.preventDefault();
+      nextPage();
+    }
+  }
+}
+
+function previousPage() {
+  if (currentPageIndex.value > 0) {
+    if (hasUnsavedChanges()) {
+      ElMessageBox.confirm('当前页面有未保存的修改，切换页面后将丢失，确定继续吗？', '提示', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        currentPageIndex.value--;
+        loadCurrentPage();
+      }).catch(() => {});
+    } else {
+      currentPageIndex.value--;
+      loadCurrentPage();
+    }
+  }
+}
+
+function nextPage() {
+  if (currentPageIndex.value < bookPages.value.length - 1) {
+    if (hasUnsavedChanges()) {
+      ElMessageBox.confirm('当前页面有未保存的修改，切换页面后将丢失，确定继续吗？', '提示', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        currentPageIndex.value++;
+        loadCurrentPage();
+      }).catch(() => {});
+    } else {
+      currentPageIndex.value++;
+      loadCurrentPage();
+    }
+  }
+}
+
+function hasUnsavedChanges() {
+  if (!currentImage.value || !currentBook.value) return false;
+  const currentPage = bookPages.value[currentPageIndex.value];
+  if (!currentPage) return false;
+
+  // 检查区域数量是否变化
+  if (regions.value.length !== currentPage.regions.length) return true;
+
+  // 检查是否有新建的区域（没有 id）
+  if (regions.value.some(r => !r.id)) return true;
+
+  // 检查现有区域是否被修改
+  for (const region of regions.value) {
+    const original = currentPage.regions.find(r => r.id === region.id);
+    if (!original) return true;
+
+    if (region.text !== original.text ||
+        Math.abs(region.xPercent - original.xPercent) > 0.01 ||
+        Math.abs(region.yPercent - original.yPercent) > 0.01 ||
+        Math.abs(region.widthPercent - original.widthPercent) > 0.01 ||
+        Math.abs(region.heightPercent - original.heightPercent) > 0.01) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function loadCurrentPage() {
+  const page = bookPages.value[currentPageIndex.value];
+  if (!page) return;
+
+  currentImage.value = page.image;
+  regions.value = page.regions.map(normalizeRegion);
+  selectedLocalId.value = null;
+  editingLocalId.value = null;
+  nextTick(() => updateFrameSize());
 }
 </script>

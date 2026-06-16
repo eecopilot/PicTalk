@@ -1,7 +1,24 @@
-import ElementPlus from 'element-plus';
-import 'element-plus/dist/index.css';
 import { createApp } from 'vue';
 import App from './App.vue';
 import './styles.css';
+import 'element-plus/theme-chalk/el-button.css';
+import 'element-plus/theme-chalk/el-button-group.css';
+import 'element-plus/theme-chalk/el-carousel.css';
+import 'element-plus/theme-chalk/el-carousel-item.css';
+import 'element-plus/theme-chalk/el-dialog.css';
+import 'element-plus/theme-chalk/el-drawer.css';
+import 'element-plus/theme-chalk/el-icon.css';
+import 'element-plus/theme-chalk/el-input.css';
+import 'element-plus/theme-chalk/el-loading.css';
+import 'element-plus/theme-chalk/el-message.css';
+import 'element-plus/theme-chalk/el-message-box.css';
+import 'element-plus/theme-chalk/el-overlay.css';
+import 'element-plus/theme-chalk/el-segmented.css';
+import 'element-plus/theme-chalk/el-tooltip.css';
+import 'element-plus/theme-chalk/el-upload.css';
+import 'element-plus/theme-chalk/base.css';
+import { setupElementPlus } from './element-plus';
 
-createApp(App).use(ElementPlus).mount('#app');
+const app = createApp(App);
+setupElementPlus(app);
+app.mount('#app');

@@ -204,7 +204,7 @@
 
 <script setup lang="ts">
 import { Check, CopyDocument, Delete, Expand, Microphone } from '@element-plus/icons-vue';
-import { ElLoading, ElMessage, ElMessageBox } from 'element-plus';
+import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 

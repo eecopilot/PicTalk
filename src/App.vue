@@ -69,6 +69,21 @@
       </div>
     </el-drawer>
 
+    <el-dialog v-model="importDialogVisible" title="导入 JSON" width="680px">
+      <div class="import-dialog">
+        <el-input
+          v-model="importJsonText"
+          type="textarea"
+          :rows="14"
+          placeholder='粘贴 JSON，例如 {"regions":[{"text":"...","xPercent":10,"yPercent":20,"widthPercent":18,"heightPercent":8}]}'
+        />
+      </div>
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importingRegions" @click="importRegions">导入</el-button>
+      </template>
+    </el-dialog>
+
     <section class="stage" @click="handleStageClick">
       <div v-if="!currentImage" class="empty-state">
         <h2>上传一张图片开始点读标注</h2>
@@ -144,15 +159,35 @@
     </section>
 
     <footer class="bottom-toolbar">
-      <el-segmented v-model="mode" :options="modeOptions" />
-      <el-button :type="creating ? 'primary' : 'default'" :disabled="!currentImage || mode !== 'edit'" @click="creating = !creating">
-        生成文字
-      </el-button>
-      <el-button :disabled="!selectedRegion || mode !== 'edit'" @click="deleteSelected">删除</el-button>
-      <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
-      <el-button :disabled="!currentImage || mode !== 'edit'" :loading="ocrRefreshing" @click="refreshOcr">
-        重新识别
-      </el-button>
+      <div class="toolbar-section">
+        <el-segmented v-model="mode" :options="modeOptions" />
+      </div>
+
+      <el-button-group class="toolbar-section">
+        <el-button :type="creating ? 'primary' : 'default'" :disabled="!currentImage || mode !== 'edit'" @click="creating = !creating">
+          生成文字
+        </el-button>
+        <el-button :disabled="!selectedRegion || mode !== 'edit'" @click="deleteSelected">删除</el-button>
+        <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
+      </el-button-group>
+
+      <div class="toolbar-section model-toolbar">
+        <el-segmented v-model="modelMode" :options="modelModeOptions" />
+        <el-button-group v-if="modelMode === 'ai'">
+          <el-button :disabled="!currentImage || mode !== 'edit'" :loading="ocrRefreshing" @click="refreshOcr">
+            重新识别
+          </el-button>
+        </el-button-group>
+        <el-button-group v-else>
+          <el-button :disabled="!currentImage || mode !== 'edit'" :loading="importingRegions" @click="openImportDialog">
+            导入 JSON
+          </el-button>
+          <el-button :disabled="!currentImage" @click="exportRegionsJson">
+            导出 JSON
+          </el-button>
+        </el-button-group>
+      </div>
+
       <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
         保存全部
       </el-button>
@@ -203,6 +238,11 @@ const modeOptions = [
   { label: '编辑', value: 'edit' },
   { label: '阅读', value: 'read' }
 ];
+const modelMode = ref<'ai' | 'manual'>('ai');
+const modelModeOptions = [
+  { label: 'AI', value: 'ai' },
+  { label: '非AI', value: 'manual' }
+];
 const currentImage = ref<ReaderImage | null>(null);
 const regions = ref<TextRegion[]>([]);
 const saveRecords = ref<SaveRecord[]>([]);
@@ -212,6 +252,10 @@ const creating = ref(false);
 const saving = ref(false);
 const ocrRefreshing = ref(false);
 const uploading = ref(false);
+const importingRegions = ref(false);
+const importDialogVisible = ref(false);
+const importJsonText = ref('');
+const manualImportMode = ref(false);
 const imageFrameRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
 const audioRef = ref<HTMLAudioElement | null>(null);
@@ -238,6 +282,9 @@ const selectedRegion = computed(() => regions.value.find((item) => item.localId 
 const tips = computed(() => {
   if (!currentImage.value) {
     return ['上传图片后自动识别文字。', '点击右上角历史按钮可打开保存记录。'];
+  }
+  if (manualImportMode.value) {
+    return ['OCR API 暂不可用，已切到“非AI”导入 JSON。', '导入 JSON 会覆盖当前图片的全部标注。'];
   }
   if (mode.value === 'edit') {
     return ['OCR 会自动生成喇叭标注。', '拖动喇叭调整位置，再点“保存全部”。', '漏识别时可点击“生成文字”手动补充。'];
@@ -281,11 +328,15 @@ async function uploadImage(options: { file: File }) {
     regions.value = data.regions.map(normalizeRegion);
     selectedLocalId.value = null;
     editingLocalId.value = null;
+    manualImportMode.value = Boolean(data.ocrError || (data.ocrEnabled && regions.value.length === 0));
+    modelMode.value = manualImportMode.value ? 'manual' : 'ai';
     mode.value = 'edit';
-    if (data.cached) {
+    if (data.cached && regions.value.length > 0) {
       ElMessage.success('已从缓存加载这张图片和标注。');
+    } else if (data.cached) {
+      ElMessage.info('这张图片已存在，当前没有标注。');
     } else if (data.ocrEnabled && regions.value.length === 0) {
-      ElMessage.warning('已上传图片，但暂未识别到文字');
+      ElMessage.warning(data.ocrError ? 'OCR 暂不可用，可切到“非AI”导入 JSON' : '已上传图片，但暂未识别到文字');
     } else if (data.ocrEnabled && regions.value.length > 0) {
       ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击“保存全部”。');
     }
@@ -312,6 +363,8 @@ async function reloadImage() {
   regions.value = data.regions.map(normalizeRegion);
   selectedLocalId.value = null;
   editingLocalId.value = null;
+  manualImportMode.value = false;
+  modelMode.value = 'ai';
   await nextTick();
   updateFrameSize();
 }
@@ -340,6 +393,8 @@ async function loadHistoryRecord(record: SaveRecord) {
   selectedLocalId.value = null;
   editingLocalId.value = null;
   creating.value = false;
+  manualImportMode.value = false;
+  modelMode.value = 'ai';
   mode.value = 'read';
   historyVisible.value = false;
   await nextTick();
@@ -361,7 +416,13 @@ async function clearSaveRecords() {
     ElMessage.error('清空历史失败');
     return;
   }
+  const data = await response.json().catch(() => null);
   saveRecords.value = [];
+  regions.value = [];
+  selectedLocalId.value = null;
+  editingLocalId.value = null;
+  creating.value = false;
+  ElMessage.success(`已清空历史和 ${data?.regionsDeleted ?? 0} 个标注`);
 }
 
 async function refreshOcr() {
@@ -383,13 +444,17 @@ async function refreshOcr() {
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       if (data?.regions) regions.value = data.regions.map(normalizeRegion);
-      throw new Error(data?.error ?? 'ocr failed');
+      manualImportMode.value = true;
+      modelMode.value = 'manual';
+      throw new Error(formatOcrError(data));
     }
     const data = await response.json();
     regions.value = data.regions.map(normalizeRegion);
     selectedLocalId.value = null;
     editingLocalId.value = null;
     creating.value = false;
+    manualImportMode.value = false;
+    modelMode.value = 'ai';
     await nextTick();
     updateFrameSize();
     if (regions.value.length === 0) {
@@ -398,10 +463,130 @@ async function refreshOcr() {
       ElMessage.success('已重新识别，请检查喇叭位置。');
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error && error.message === 'ocr returned no regions' ? '重新识别失败，已保留现有标注' : '重新识别失败');
+    ElMessage.error(error instanceof Error ? error.message : '重新识别失败');
   } finally {
     ocrRefreshing.value = false;
   }
+}
+
+function openImportDialog() {
+  importJsonText.value = '';
+  importDialogVisible.value = true;
+}
+
+async function importRegions() {
+  if (!currentImage.value) return;
+  const parsed = parseImportedRegions(importJsonText.value);
+  if (!parsed) {
+    ElMessage.error('没有找到有效的 regions JSON');
+    return;
+  }
+  if (regions.value.length > 0) {
+    try {
+      await ElMessageBox.confirm('导入会覆盖当前图片的全部文字标注，确定继续吗？', '导入 JSON', {
+        confirmButtonText: '导入',
+        cancelButtonText: '取消',
+        type: 'warning'
+      });
+    } catch {
+      return;
+    }
+  }
+
+  importingRegions.value = true;
+  try {
+    const response = await fetch(`/api/images/${currentImage.value.id}/import-regions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regions: parsed.regions })
+    });
+    if (!response.ok) {
+      throw new Error('import failed');
+    }
+    const data = await response.json();
+    regions.value = data.regions.map(normalizeRegion);
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    creating.value = false;
+    manualImportMode.value = false;
+    modelMode.value = 'manual';
+    mode.value = 'edit';
+    importDialogVisible.value = false;
+    await nextTick();
+    updateFrameSize();
+    ElMessage.success(`已导入 ${regions.value.length} 个标注，请检查后保存`);
+  } catch {
+    ElMessage.error('导入失败，请检查 JSON 格式');
+  } finally {
+    importingRegions.value = false;
+  }
+}
+
+function exportRegionsJson() {
+  if (!currentImage.value) return;
+  const payload = {
+    image: {
+      id: currentImage.value.id,
+      originalName: currentImage.value.originalName,
+      width: currentImage.value.width,
+      height: currentImage.value.height
+    },
+    regions: regions.value.map((region) => ({
+      text: region.text.trim(),
+      xPercent: roundPercent(region.xPercent),
+      yPercent: roundPercent(region.yPercent),
+      widthPercent: roundPercent(region.widthPercent),
+      heightPercent: roundPercent(region.heightPercent),
+      iconXPercent: typeof region.iconXPercent === 'number' ? roundPercent(region.iconXPercent) : null,
+      iconYPercent: typeof region.iconYPercent === 'number' ? roundPercent(region.iconYPercent) : null
+    }))
+  };
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${safeFileStem(currentImage.value.originalName)}-regions.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  ElMessage.success(`已导出 ${payload.regions.length} 个标注`);
+}
+
+function parseImportedRegions(text: string): { regions: any[] } | null {
+  const normalizedText = normalizeImportedJsonText(text);
+  try {
+    const parsed = JSON.parse(normalizedText);
+    return Array.isArray(parsed?.regions) ? parsed : null;
+  } catch {
+    const match = normalizedText.match(/\{[\s\S]*"regions"[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      const parsed = JSON.parse(match[0]);
+      return Array.isArray(parsed?.regions) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function normalizeImportedJsonText(text: string) {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'");
+}
+
+function formatOcrError(data: any) {
+  const error = data?.error ? String(data.error) : 'ocr failed';
+  const count = Array.isArray(data?.regions) ? data.regions.length : regions.value.length;
+  if (error === 'ocr returned no regions') return `重新识别失败：未识别到文字，已保留 ${count} 个标注`;
+  if (error === 'ocr returned empty content') return `重新识别失败：OCR 没有返回内容，已保留 ${count} 个标注`;
+  if (error === 'ocr returned no parsable regions') return `重新识别失败：OCR 返回格式不对，已保留 ${count} 个标注`;
+  if (error.startsWith('ocr request failed')) return `重新识别失败：${error}，已保留 ${count} 个标注`;
+  return `重新识别失败：${error}，已保留 ${count} 个标注`;
 }
 
 function handleStageClick(event: MouseEvent) {
@@ -746,6 +931,15 @@ function readImageDimensions(file: File) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function roundPercent(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function safeFileStem(name: string) {
+  const stem = name.replace(/\.[^.]+$/, '').trim() || 'pic-reader';
+  return stem.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
 }
 
 function formatDate(value: string) {

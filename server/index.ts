@@ -50,6 +50,12 @@ type OcrRegion = {
   heightPercent: number;
 };
 
+type OcrDetectionResult = {
+  regions: OcrRegion[];
+  error?: string;
+  details?: string;
+};
+
 type PixelOcrRegion = {
   id?: number;
   sourceIds?: number[];
@@ -123,8 +129,12 @@ app.get('/api/save-records', (c) => {
 });
 
 app.delete('/api/save-records', (c) => {
-  db.prepare('DELETE FROM save_records').run();
-  return c.json({ ok: true });
+  const result = db.transaction(() => {
+    const recordsDeleted = db.prepare('DELETE FROM save_records').run().changes;
+    const regionsDeleted = db.prepare('DELETE FROM text_regions').run().changes;
+    return { recordsDeleted, regionsDeleted };
+  })();
+  return c.json({ ok: true, ...result });
 });
 
 app.delete('/api/save-records/:id', (c) => {
@@ -147,21 +157,23 @@ app.post('/api/images', async (c) => {
   const contentHash = md5(imageBuffer);
   const existingImage = getImageByHash(contentHash);
   if (existingImage && !forceOcr) {
+    const cachedRegions = getRegions(existingImage.id);
     return c.json({
       image: existingImage,
-      regions: getRegions(existingImage.id),
+      regions: cachedRegions,
       ocrEnabled: Boolean(OPENAI_API_KEY),
-      cached: true
+      cached: true,
+      cachedRegionCount: cachedRegions.length
     });
   }
 
   if (existingImage) {
-    const regions = await detectTextRegions(imageBuffer, file.type, existingImage.width, existingImage.height);
-    if (regions.length === 0) {
-      return c.json({ error: 'ocr returned no regions', regions: getRegions(existingImage.id), ocrEnabled: Boolean(OPENAI_API_KEY) }, 502);
+    const ocrResult = await detectTextRegions(imageBuffer, file.type, existingImage.width, existingImage.height);
+    if (ocrResult.regions.length === 0) {
+      return c.json({ error: ocrResult.error ?? 'ocr returned no regions', details: ocrResult.details, regions: getRegions(existingImage.id), ocrEnabled: Boolean(OPENAI_API_KEY) }, 502);
     }
     db.prepare('DELETE FROM text_regions WHERE image_id = ?').run(existingImage.id);
-    const savedRegions = insertOcrRegions(existingImage.id, regions);
+    const savedRegions = insertOcrRegions(existingImage.id, ocrResult.regions);
     return c.json({ image: existingImage, regions: savedRegions, ocrEnabled: Boolean(OPENAI_API_KEY), cached: false, refreshed: true });
   }
 
@@ -175,9 +187,16 @@ app.post('/api/images', async (c) => {
   `).run(filename, file.name, contentHash, width, height);
 
   const image = getImage(Number(result.lastInsertRowid));
-  const regions = await detectTextRegions(imageBuffer, file.type, width, height);
-  const savedRegions = image ? insertOcrRegions(image.id, regions) : [];
-  return c.json({ image, regions: savedRegions, ocrEnabled: Boolean(OPENAI_API_KEY), cached: false }, 201);
+  const ocrResult = await detectTextRegions(imageBuffer, file.type, width, height);
+  const savedRegions = image ? insertOcrRegions(image.id, ocrResult.regions) : [];
+  return c.json({
+    image,
+    regions: savedRegions,
+    ocrEnabled: Boolean(OPENAI_API_KEY),
+    ocrError: ocrResult.regions.length === 0 ? ocrResult.error : undefined,
+    ocrDetails: ocrResult.regions.length === 0 ? ocrResult.details : undefined,
+    cached: false
+  }, 201);
 });
 
 app.post('/api/images/:id/ocr', async (c) => {
@@ -188,13 +207,29 @@ app.post('/api/images/:id/ocr', async (c) => {
   if (!row) return c.json({ error: 'image file not found' }, 404);
   const filePath = join(uploadDir, row.filename);
   const imageBuffer = await readFileForOcr(filePath);
-  const regions = await detectTextRegions(imageBuffer, mimeTypeFromExtension(row.filename), image.width, image.height);
-  if (regions.length === 0) {
-    return c.json({ error: 'ocr returned no regions', regions: getRegions(image.id), ocrEnabled: Boolean(OPENAI_API_KEY) }, 502);
+  const ocrResult = await detectTextRegions(imageBuffer, mimeTypeFromExtension(row.filename), image.width, image.height);
+  if (ocrResult.regions.length === 0) {
+    return c.json({ error: ocrResult.error ?? 'ocr returned no regions', details: ocrResult.details, regions: getRegions(image.id), ocrEnabled: Boolean(OPENAI_API_KEY) }, 502);
   }
   db.prepare('DELETE FROM text_regions WHERE image_id = ?').run(image.id);
-  const savedRegions = insertOcrRegions(image.id, regions);
+  const savedRegions = insertOcrRegions(image.id, ocrResult.regions);
   return c.json({ regions: savedRegions, ocrEnabled: Boolean(OPENAI_API_KEY) });
+});
+
+app.post('/api/images/:id/import-regions', async (c) => {
+  const image = getImage(Number(c.req.param('id')));
+  if (!image) return c.json({ error: 'image not found' }, 404);
+
+  const payload = await c.req.json();
+  const rawRegions = Array.isArray(payload?.regions) ? payload.regions : [];
+  const regions = rawRegions
+    .map((region: any) => normalizeImportedRegion(region, image.width, image.height))
+    .filter((region: OcrRegion | null): region is OcrRegion => Boolean(region));
+  if (regions.length === 0) return c.json({ error: 'no valid regions' }, 400);
+
+  db.prepare('DELETE FROM text_regions WHERE image_id = ?').run(image.id);
+  const savedRegions = insertOcrRegions(image.id, regions);
+  return c.json({ regions: savedRegions });
 });
 
 app.get('/api/images/:id', (c) => {
@@ -211,17 +246,14 @@ app.post('/api/images/:id/save-records', (c) => {
   const regionCount = Number(
     (db.prepare('SELECT COUNT(*) AS count FROM text_regions WHERE image_id = ?').get(imageId) as { count: number }).count
   );
-  const recentRecord = db.prepare(`
-    SELECT *
-    FROM save_records
-    WHERE image_id = ?
-      AND region_count = ?
-      AND created_at >= datetime('now', '-1 minute')
-    ORDER BY id DESC
-    LIMIT 1
-  `).get(image.id, regionCount) as SaveRecordRow | undefined;
-  if (recentRecord) {
-    return c.json({ record: mapSaveRecord(recentRecord), deduped: true });
+  const existingRecord = db.prepare('SELECT * FROM save_records WHERE image_id = ?').get(image.id) as SaveRecordRow | undefined;
+  if (existingRecord) {
+    db.prepare(`
+      UPDATE save_records
+      SET image_name = ?, region_count = ?, created_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(image.originalName, regionCount, existingRecord.id);
+    return c.json({ record: getSaveRecord(existingRecord.id), updated: true });
   }
 
   const result = db.prepare(`
@@ -396,6 +428,19 @@ function migrateDatabase() {
   })();
 
   db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_images_content_hash ON images(content_hash)').run();
+  dedupeSaveRecords();
+  db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_save_records_image_id ON save_records(image_id)').run();
+}
+
+function dedupeSaveRecords() {
+  db.prepare(`
+    DELETE FROM save_records
+    WHERE id NOT IN (
+      SELECT MAX(id)
+      FROM save_records
+      GROUP BY image_id
+    )
+  `).run();
 }
 
 function getImageByHash(contentHash: string) {
@@ -461,8 +506,8 @@ function mapSaveRecord(row: SaveRecordRow) {
   };
 }
 
-async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: number, height: number): Promise<OcrRegion[]> {
-  if (!OPENAI_API_KEY) return [];
+async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: number, height: number): Promise<OcrDetectionResult> {
+  if (!OPENAI_API_KEY) return { regions: [], error: 'ocr api key is not configured' };
 
   try {
     const response = await fetch(`${OPENAI_BASE_URL.replace(/\/$/, '')}/v1/chat/completions`, {
@@ -516,8 +561,9 @@ async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: n
     });
 
     if (!response.ok) {
-      console.warn(`OCR request failed: ${response.status} ${await response.text()}`);
-      return [];
+      const details = limitText(await response.text(), 500);
+      console.warn(`OCR request failed: ${response.status} ${details}`);
+      return { regions: [], error: `ocr request failed: ${response.status}`, details };
     }
 
     const data = await response.json();
@@ -525,14 +571,27 @@ async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: n
     const parsed = parseOcrJson(content);
     if (parsed.length === 0) {
       console.warn('OCR returned no regions', content);
+      return {
+        regions: [],
+        error: typeof content === 'string' && content.trim() ? 'ocr returned no parsable regions' : 'ocr returned empty content',
+        details: limitText(typeof content === 'string' ? content : JSON.stringify(data), 500)
+      };
     }
-    return splitDialogueRegions(mergeNearbyOcrLines(parsed.map(toPixelOcrRegion).filter((region: PixelOcrRegion | null): region is PixelOcrRegion => Boolean(region))))
+    const regions = splitDialogueRegions(mergeNearbyOcrLines(parsed.map(toPixelOcrRegion).filter((region: PixelOcrRegion | null): region is PixelOcrRegion => Boolean(region))))
       .map((region) => normalizeOcrRegion(region, width, height))
       .filter((region: OcrRegion | null): region is OcrRegion => Boolean(region));
+    if (regions.length === 0) {
+      return { regions: [], error: 'ocr returned invalid region coordinates', details: limitText(JSON.stringify(parsed), 500) };
+    }
+    return { regions };
   } catch (error) {
     console.warn('OCR request failed', error);
-    return [];
+    return { regions: [], error: 'ocr request failed', details: error instanceof Error ? error.message : String(error) };
   }
+}
+
+function limitText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
 async function readFileForOcr(path: string) {
@@ -712,6 +771,29 @@ function normalizeOcrRegion(region: any, imageWidth: number, imageHeight: number
     widthPercent: clampNumber((width / imageWidth) * 100, 4, 60),
     heightPercent: clampNumber((height / imageHeight) * 100, 4, 28)
   };
+}
+
+function normalizeImportedRegion(region: any, imageWidth: number, imageHeight: number): OcrRegion | null {
+  const text = String(region.text ?? '').trim();
+  if (!text || imageWidth <= 0 || imageHeight <= 0) return null;
+
+  const hasPercent = ['xPercent', 'yPercent', 'widthPercent', 'heightPercent'].every((key) => Number.isFinite(Number(region[key])));
+  if (hasPercent) {
+    const xPercent = Number(region.xPercent);
+    const yPercent = Number(region.yPercent);
+    const widthPercent = Number(region.widthPercent);
+    const heightPercent = Number(region.heightPercent);
+    if (widthPercent <= 0 || heightPercent <= 0) return null;
+    return {
+      text,
+      xPercent: clampNumber(xPercent, 0, 98),
+      yPercent: clampNumber(yPercent, 0, 98),
+      widthPercent: clampNumber(widthPercent, 4, 60),
+      heightPercent: clampNumber(heightPercent, 4, 28)
+    };
+  }
+
+  return normalizeOcrRegion(region, imageWidth, imageHeight);
 }
 
 function clampNumber(value: number, min: number, max: number) {

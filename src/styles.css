@@ -177,6 +177,11 @@ input {
   font-weight: 700;
 }
 
+.import-dialog {
+  display: grid;
+  gap: 12px;
+}
+
 .upload-control {
   flex: 0 0 auto;
 }
@@ -403,6 +408,22 @@ input {
   backdrop-filter: blur(10px);
 }
 
+.toolbar-section {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.toolbar-section + .toolbar-section {
+  padding-left: 10px;
+  border-left: 1px solid #d9dee8;
+}
+
+.model-toolbar {
+  gap: 10px;
+}
+
 @media (max-width: 720px) {
   .top-bar {
     height: 88px;
@@ -436,5 +457,10 @@ input {
   .bottom-toolbar {
     justify-content: flex-start;
     overflow-x: auto;
+  }
+
+  .toolbar-section + .toolbar-section {
+    padding-left: 0;
+    border-left: 0;
   }
 }

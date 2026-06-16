@@ -275,13 +275,53 @@ app.post('/api/text-regions/:id/audio', (c) => {
   const region = getRegion(Number(c.req.param('id')));
   if (!region) return c.json({ error: 'region not found' }, 404);
 
-  const url = new URL('https://tts.323686.xyz/tts');
-  url.searchParams.set('t', region.text);
-  url.searchParams.set('v', 'zh-CN-XiaoxiaoMultilingualNeural');
-  url.searchParams.set('r', '0');
-  url.searchParams.set('p', '0');
-  url.searchParams.set('o', 'audio-24khz-48kbitrate-mono-mp3');
-  return c.json({ audioUrl: url.toString() });
+  return c.json({ audioUrl: buildTtsUrl(region.text).toString() });
+});
+
+app.get('/api/tts', async (c) => {
+  const text = c.req.query('t')?.trim();
+  if (!text) return c.json({ error: 'text is required' }, 400);
+
+  const upstream = await fetch(buildTtsUrl(text));
+  if (!upstream.ok || !upstream.body) {
+    return c.json({ error: 'tts failed' }, 502);
+  }
+
+  const audio = await upstream.arrayBuffer();
+  const contentType = upstream.headers.get('content-type') ?? 'audio/mpeg';
+  const range = c.req.header('range');
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'Content-Type': contentType
+  };
+
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match) return c.body(null, 416, headers);
+
+    const total = audio.byteLength;
+    const start = match[1] ? Number(match[1]) : 0;
+    const end = match[2] ? Math.min(Number(match[2]), total - 1) : total - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) {
+      return c.body(null, 416, {
+        ...headers,
+        'Content-Range': `bytes */${total}`
+      });
+    }
+
+    const chunk = audio.slice(start, end + 1);
+    return c.body(chunk, 206, {
+      ...headers,
+      'Content-Length': String(chunk.byteLength),
+      'Content-Range': `bytes ${start}-${end}/${total}`
+    });
+  }
+
+  return c.body(audio, 200, {
+    ...headers,
+    'Content-Length': String(audio.byteLength)
+  });
 });
 
 app.get('*', serveStatic({ path: './dist/index.html' }));
@@ -301,6 +341,16 @@ function getImage(id: number) {
     height: row.height,
     createdAt: row.created_at
   };
+}
+
+function buildTtsUrl(text: string) {
+  const url = new URL('https://tts.323686.xyz/tts');
+  url.searchParams.set('t', text);
+  url.searchParams.set('v', 'zh-CN-XiaoxiaoMultilingualNeural');
+  url.searchParams.set('r', '0');
+  url.searchParams.set('p', '0');
+  url.searchParams.set('o', 'audio-24khz-48kbitrate-mono-mp3');
+  return url;
 }
 
 function migrateDatabase() {

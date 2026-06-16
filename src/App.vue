@@ -156,6 +156,8 @@
         保存全部
       </el-button>
     </footer>
+
+    <audio ref="audioRef" class="reader-audio" preload="none" playsinline />
   </main>
 </template>
 
@@ -211,8 +213,8 @@ const ocrRefreshing = ref(false);
 const uploading = ref(false);
 const imageFrameRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
+const audioRef = ref<HTMLAudioElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
-const audio = ref<HTMLAudioElement | null>(null);
 const editingLocalId = ref<string | null>(null);
 const uploadLoading = ref<LoadingInstance | null>(null);
 const dragging = ref<{
@@ -515,22 +517,24 @@ function playRegion(region: TextRegion) {
     ElMessage.warning('请先保存该文字区域');
     return;
   }
-  audio.value?.pause();
-  audio.value = new Audio(ttsUrl(region.text));
-  audio.value.preload = 'auto';
-  audio.value.setAttribute('playsinline', 'true');
-  audio.value.play().catch(() => {
-    ElMessage.error('播放失败，请确认 iPad 未静音并允许网页播放声音');
+  const player = audioRef.value;
+  if (!player) {
+    ElMessage.error('播放器还没有准备好，请再点一次');
+    return;
+  }
+
+  player.pause();
+  player.currentTime = 0;
+  player.src = ttsUrl(region.text);
+  player.play().catch((error: unknown) => {
+    const message = error instanceof Error ? error.name || error.message : '未知错误';
+    ElMessage.error(`播放失败：${message}。请确认 iPad 未静音，并检查该音频地址能否访问。`);
   });
 }
 
 function ttsUrl(text: string) {
-  const url = new URL('https://tts.323686.xyz/tts');
+  const url = new URL('/api/tts', window.location.origin);
   url.searchParams.set('t', text);
-  url.searchParams.set('v', 'zh-CN-XiaoxiaoMultilingualNeural');
-  url.searchParams.set('r', '0');
-  url.searchParams.set('p', '0');
-  url.searchParams.set('o', 'audio-24khz-48kbitrate-mono-mp3');
   return url.toString();
 }
 

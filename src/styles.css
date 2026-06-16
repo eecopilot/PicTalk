@@ -182,6 +182,20 @@ input {
   gap: 12px;
 }
 
+.import-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.import-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .upload-control {
   flex: 0 0 auto;
 }
@@ -462,5 +476,14 @@ input {
   .toolbar-section + .toolbar-section {
     padding-left: 0;
     border-left: 0;
+  }
+
+  .import-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .import-footer-actions {
+    justify-content: flex-end;
   }
 }

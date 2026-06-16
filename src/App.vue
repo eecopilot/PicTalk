@@ -79,8 +79,13 @@
         />
       </div>
       <template #footer>
-        <el-button @click="importDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importingRegions" @click="importRegions">导入</el-button>
+        <div class="import-footer">
+          <el-button :icon="CopyDocument" @click="copyOcrPrompt">复制提示词</el-button>
+          <div class="import-footer-actions">
+            <el-button @click="importDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="importingRegions" @click="importRegions">导入</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
 
@@ -198,7 +203,7 @@
 </template>
 
 <script setup lang="ts">
-import { Check, Delete, Expand, Microphone } from '@element-plus/icons-vue';
+import { Check, CopyDocument, Delete, Expand, Microphone } from '@element-plus/icons-vue';
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -472,6 +477,85 @@ async function refreshOcr() {
 function openImportDialog() {
   importJsonText.value = '';
   importDialogVisible.value = true;
+}
+
+async function copyOcrPrompt() {
+  if (!currentImage.value) return;
+  const prompt = buildManualOcrPrompt(currentImage.value);
+  try {
+    await copyTextToClipboard(prompt);
+    ElMessage.success('提示词已复制');
+  } catch {
+    showManualPromptFallback(prompt);
+  }
+}
+
+function buildManualOcrPrompt(image: ReaderImage) {
+  return [
+    'You are an OCR engine for a picture reading app.',
+    'Detect all readable text in the attached image.',
+    `Original image size is ${image.width}x${image.height}.`,
+    'Return only valid JSON with a regions array and no markdown.',
+    'Each region must include text, x, y, width, height.',
+    'Coordinates must be pixel coordinates relative to the original image.',
+    'Group all lines that form one sentence, question, caption, label, or speech bubble into one region.',
+    'For multi-line text inside the same speech bubble, return one region with the full text in reading order.',
+    'Treat visible grid cells, table cells, comic panels, worksheet boxes, cards, and bordered compartments as hard boundaries.',
+    'Never merge text across a cell border, panel border, box border, or clear compartment gap, even when the text seems semantically related.',
+    'If an image is arranged as many boxed cells, return one or more regions per cell, but do not create one region spanning multiple cells.',
+    'For dialogue or role-play text, split by speaker turn: each A:, B:, C:, Teacher:, Student:, or similar speaker line is its own region.',
+    'Keep a speaker turn together with its translation. For example "A: Don’t play with your knife/fork. 不要玩刀叉。" is one region, and "B: Don’t point chopsticks at others. 不要把筷子指向别人。" is another region.',
+    'Never merge two different speaker turns into one region, even when they are inside the same table cell or speech bubble.',
+    'Use spaces between joined lines unless punctuation already separates them.',
+    'If exact boxes are hard, estimate one tight box around the whole phrase or sentence.',
+    'Do not include decorative watermarks or irrelevant background text.',
+    'Return JSON exactly like {"regions":[{"text":"Culturally interested.","x":10,"y":20,"width":120,"height":80}]}.',
+    'Output JSON format only. Do not include explanations, markdown fences, or any text outside the JSON object.'
+  ].join('\n');
+}
+
+async function copyTextToClipboard(text: string) {
+  if (copyTextWithSelection(text)) return;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  throw new Error('copy failed');
+}
+
+function copyTextWithSelection(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  textarea.style.left = '0';
+  textarea.style.width = '1px';
+  textarea.style.height = '1px';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  textarea.setAttribute('readonly', '');
+  document.body.appendChild(textarea);
+  const selection = document.getSelection();
+  const previousRange = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+  textarea.focus({ preventScroll: true });
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (previousRange && selection) {
+    selection.removeAllRanges();
+    selection.addRange(previousRange);
+  }
+  return copied;
+}
+
+async function showManualPromptFallback(prompt: string) {
+  importJsonText.value = prompt;
+  await nextTick();
+  const textarea = document.querySelector('.import-dialog textarea') as HTMLTextAreaElement | null;
+  textarea?.focus({ preventScroll: true });
+  textarea?.select();
+  ElMessage.warning('已将提示词放入输入框并全选，请手动复制');
 }
 
 async function importRegions() {

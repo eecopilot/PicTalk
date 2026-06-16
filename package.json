@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": {
+ "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite --host 0.0.0.0",
     "dev:server": "tsx watch server/index.ts",
-    "build": "vue-tsc --noEmit && vite build",
-    "start": "tsx server/index.ts"
+    "build": "vue-tsc --noEmit && vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.js",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.1",
+    "esbuild": "^0.28.1",
     "typescript": "^5.7.2",
     "vue-router": "^4.6.4",
     "vue-tsc": "^2.2.0"

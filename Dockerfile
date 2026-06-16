@@ -7,21 +7,20 @@ FROM node:22-bookworm AS build
 
 WORKDIR /app
 
-# 1. 先复制依赖文件（利用 Docker 层缓存）
+# 1. 先复制依赖文件
 COPY package*.json ./
 
 # 2. 使用 BuildKit 缓存挂载加速 npm 安装
-# --mount=type=cache 会在多次构建间保留 npm 缓存
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --no-audit
+    if [ -f package-lock.json ]; then npm ci --no-audit; else npm install --no-audit; fi
 
-# 3. 复制源代码（只有代码改变时才会重新构建）
+# 3. 复制源代码
 COPY . .
 
-# 4. 构建前端资源
+# 4. 构建前端资源和后端服务 (现在这里会生成 dist/server.js)
 RUN npm run build
 
-# 5. 清理开发依赖（减少最终镜像大小）
+# 5. 清理开发依赖（这一步会完美保留 better-sqlite3 等生产必需的模块）
 RUN npm prune --omit=dev
 
 # ============================================
@@ -36,7 +35,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# 创建非 root 用户运行应用（安全最佳实践）
+# 创建非 root 用户运行应用
 RUN groupadd -r appuser && \
     useradd -r -g appuser -u 1001 appuser && \
     mkdir -p /app/data /app/public/uploads && \
@@ -45,7 +44,7 @@ RUN groupadd -r appuser && \
 # 从构建阶段复制必要文件
 COPY --from=build --chown=appuser:appuser /app/package*.json ./
 COPY --from=build --chown=appuser:appuser /app/node_modules ./node_modules
-COPY --from=build --chown=appuser:appuser /app/server ./server
+# 后端和前端的编译产物现在都在 dist 里面了
 COPY --from=build --chown=appuser:appuser /app/dist ./dist
 COPY --from=build --chown=appuser:appuser /app/public ./public
 
@@ -54,8 +53,8 @@ USER appuser
 
 EXPOSE 8787
 
-# 健康检查（使用现有的 /api/health 端点）
+# 健康检查（已修复 Node 22+ 的 localhost IPv6 解析问题）
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:8787/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
+    CMD node -e "require('http').get('http://127.0.0.1:8787/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
 
 CMD ["npm", "run", "start"]

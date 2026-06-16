@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
- "scripts": {
+  "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite --host 0.0.0.0",
     "dev:server": "tsx watch server/index.ts",

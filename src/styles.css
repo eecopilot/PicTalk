@@ -243,10 +243,10 @@ input {
 }
 
 .region-marker.icon {
-  width: 38px !important;
-  height: 38px !important;
-  min-width: 38px;
-  min-height: 38px;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px;
+  min-height: 32px;
   border: 2px solid rgba(32, 122, 78, 0.42);
   border-radius: 50%;
   color: rgba(14, 104, 71, 0.72);
@@ -261,6 +261,26 @@ input {
   background: rgba(255, 248, 232, 0.56);
 }
 
+.region-marker.icon.playing {
+  border-color: rgba(28, 111, 255, 0.72);
+  color: rgba(18, 84, 210, 0.9);
+  background: rgba(232, 241, 255, 0.58);
+  animation: speaker-breathe 1.35s ease-in-out infinite;
+}
+
+@keyframes speaker-breathe {
+  0%,
+  100% {
+    box-shadow: 0 8px 20px rgba(28, 111, 255, 0.12), 0 0 0 0 rgba(28, 111, 255, 0.18);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow: 0 10px 24px rgba(28, 111, 255, 0.2), 0 0 0 5px rgba(28, 111, 255, 0.08);
+    transform: scale(1.05);
+  }
+}
+
 .region-marker.persisted {
   cursor: pointer;
 }
@@ -270,7 +290,7 @@ input {
 }
 
 .region-marker.editing {
-  min-width: 120px;
+  min-width: 96px;
   overflow: visible;
 }
 
@@ -300,7 +320,7 @@ input {
   width: 100%;
   height: 100%;
   padding: 0 !important;
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1;
 }
 

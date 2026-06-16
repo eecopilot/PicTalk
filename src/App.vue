@@ -95,10 +95,11 @@
           tabindex="0"
           class="region-marker"
           :class="{
-            selected: region.localId === selectedLocalId,
+            selected: region.localId === selectedLocalId || region.localId === playingLocalId,
             reading: mode === 'read',
             editable: mode === 'edit',
             icon: isIconRegion(region),
+            playing: region.localId === playingLocalId,
             persisted: isPersistedRegion(region),
             editing: isEditingRegion(region)
           }"
@@ -216,6 +217,9 @@ const imageRef = ref<HTMLImageElement | null>(null);
 const audioRef = ref<HTMLAudioElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
 const editingLocalId = ref<string | null>(null);
+const playingLocalId = ref<string | null>(null);
+const playbackToken = ref(0);
+const speakerIconSize = 32;
 const uploadLoading = ref<LoadingInstance | null>(null);
 const dragging = ref<{
   region: TextRegion;
@@ -449,13 +453,26 @@ function expandRegion(region: TextRegion) {
   if (isIconRegion(region)) {
     const iconWidthPercent = iconPixelWidthPercent();
     const iconHeightPercent = iconPixelHeightPercent();
-    const nextX = iconXPercent(region) + iconWidthPercent / 2 - region.widthPercent / 2;
-    const nextY = iconYPercent(region) + iconHeightPercent / 2 - region.heightPercent / 2;
+    const compactSize = compactEditorSize(region.text);
+    region.widthPercent = compactSize.widthPercent;
+    region.heightPercent = compactSize.heightPercent;
+    const nextX = iconXPercent(region) + iconWidthPercent / 2 - compactSize.widthPercent / 2;
+    const nextY = iconYPercent(region) + iconHeightPercent / 2 - compactSize.heightPercent / 2;
     region.xPercent = clamp(nextX, 0, Math.max(0, 100 - region.widthPercent));
     region.yPercent = clamp(nextY, 0, Math.max(0, 100 - region.heightPercent));
   }
   region.localIconReady = false;
   editingLocalId.value = region.localId;
+}
+
+function compactEditorSize(text: string) {
+  const compactLength = Array.from(text.replace(/\s+/g, '')).length;
+  const widthPx = clamp(48 + compactLength * 15, 120, 320);
+  const heightPx = compactLength > 20 ? 84 : 54;
+  return {
+    widthPercent: clamp((widthPx / frameSize.value.width) * 100, 12, 42),
+    heightPercent: clamp((heightPx / frameSize.value.height) * 100, 6, 18)
+  };
 }
 
 async function saveRegions() {
@@ -536,21 +553,29 @@ function playRegion(region: TextRegion) {
     return;
   }
 
+  const token = playbackToken.value + 1;
+  playbackToken.value = token;
+  player.onended = null;
+  player.onerror = null;
+  player.onabort = null;
+  playingLocalId.value = region.localId;
   player.pause();
   player.currentTime = 0;
   player.src = ttsUrl(region.text);
-  player.onended = () => clearPlayingSelection(region.localId);
-  player.onerror = () => clearPlayingSelection(region.localId);
-  player.onabort = () => clearPlayingSelection(region.localId);
+  player.onended = () => clearPlayingSelection(region.localId, token);
+  player.onerror = () => clearPlayingSelection(region.localId, token);
   player.play().catch((error: unknown) => {
-    clearPlayingSelection(region.localId);
+    clearPlayingSelection(region.localId, token);
     const message = error instanceof Error ? error.name || error.message : '未知错误';
     ElMessage.error(`播放失败：${message}。请确认 iPad 未静音，并检查该音频地址能否访问。`);
   });
 }
 
-function clearPlayingSelection(localId: string) {
-  if (selectedLocalId.value === localId && mode.value === 'read') {
+function clearPlayingSelection(localId: string, token: number) {
+  if (playbackToken.value === token && playingLocalId.value === localId) {
+    playingLocalId.value = null;
+  }
+  if (playbackToken.value === token && selectedLocalId.value === localId && mode.value === 'read') {
     selectedLocalId.value = null;
   }
 }
@@ -692,17 +717,15 @@ function iconXPercentFromBox(region: TextRegion) {
 
 function iconYPercentFromBox(region: TextRegion) {
   const iconHeightPercent = iconPixelHeightPercent();
-  const aboveY = region.yPercent - iconHeightPercent - 1;
-  const belowY = region.yPercent + region.heightPercent + 1;
-  return clamp(aboveY >= 0 ? aboveY : belowY, 0, 100 - iconHeightPercent);
+  return clamp(region.yPercent + region.heightPercent / 2 - iconHeightPercent / 2, 0, 100 - iconHeightPercent);
 }
 
 function iconPixelWidthPercent() {
-  return (38 / frameSize.value.width) * 100;
+  return (speakerIconSize / frameSize.value.width) * 100;
 }
 
 function iconPixelHeightPercent() {
-  return (38 / frameSize.value.height) * 100;
+  return (speakerIconSize / frameSize.value.height) * 100;
 }
 
 function readImageDimensions(file: File) {

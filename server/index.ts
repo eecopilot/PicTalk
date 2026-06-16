@@ -347,7 +347,7 @@ function buildTtsUrl(text: string) {
   const url = new URL('https://tts.323686.xyz/tts');
   url.searchParams.set('t', text);
   url.searchParams.set('v', 'zh-CN-XiaoxiaoMultilingualNeural');
-  url.searchParams.set('r', '0');
+  url.searchParams.set('r', '-20');
   url.searchParams.set('p', '0');
   url.searchParams.set('o', 'audio-24khz-48kbitrate-mono-mp3');
   return url;

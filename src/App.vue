@@ -27,9 +27,7 @@
         >
           <el-button type="primary" :loading="uploading">上传图片</el-button>
         </el-upload>
-        <el-tooltip content="历史记录" placement="bottom">
-          <el-button class="history-button" :icon="Expand" @click="openHistory" />
-        </el-tooltip>
+        <el-button class="history-button" :icon="Expand" @click="openHistory" />
       </div>
     </header>
 

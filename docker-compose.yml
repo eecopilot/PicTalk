@@ -1,0 +1,14 @@
+services:
+  pic-reader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pic-reader
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./public/uploads:/app/public/uploads

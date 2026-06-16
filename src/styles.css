@@ -343,6 +343,28 @@ input {
   background: #277b52;
 }
 
+.inline-delete {
+  position: absolute;
+  top: -14px;
+  left: -14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #d94841;
+  border-radius: 50%;
+  color: #fff;
+  background: #d94841;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(143, 28, 28, 0.26);
+}
+
+.inline-delete:hover {
+  background: #bd3832;
+}
+
 .bottom-toolbar {
   position: fixed;
   z-index: 12;

@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+public/uploads
+.git
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example

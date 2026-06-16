@@ -43,12 +43,13 @@ npm install
 cp .env.example .env
 ```
 
-在 `.env` 中填写 OpenAI 兼容接口 key：
+`.env` 默认使用本地 OpenAI 兼容 OCR 接口：
 
 ```bash
-OPENAI_BASE_URL=https://unity2.ai
-OPENAI_API_KEY=xxx
-OCR_MODEL=gpt-5.5
+PORT=8787
+OPENAI_BASE_URL=http://192.168.1.30:8317
+OPENAI_API_KEY=你的接口 key
+OCR_MODEL=gemini-3.1-pro-preview
 ```
 
 运行：
@@ -69,8 +70,18 @@ http://localhost:5173/
 http://localhost:8787/
 ```
 
+Docker 部署：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填写 OPENAI_API_KEY
+docker compose up -d --build
+```
+
+SQLite 数据库不需要提前创建。应用启动时会自动创建 `data/pic-reader.sqlite`，并自动建表/迁移；空目录也可以直接启动。上传图片保存在 `public/uploads`。Docker Compose 已把这两个目录挂载到宿主机，重建容器不会丢数据。
+
 ## 用了什么
-- Unity2.ai API（GPT-5.5）
+- 本地 OpenAI 兼容 OCR API
 - Vue 3
 - Element Plus
 - Hono.js

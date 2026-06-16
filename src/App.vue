@@ -115,6 +115,7 @@
             placeholder="输入文字"
             @click.stop
             @pointerdown.stop
+            @focusin="selectedLocalId = region.localId"
           />
           <button
             v-if="isEditingRegion(region)"
@@ -124,6 +125,15 @@
             @pointerdown.stop
           >
             <el-icon><Check /></el-icon>
+          </button>
+          <button
+            v-if="isEditingRegion(region)"
+            class="inline-delete"
+            title="删除该标注"
+            @click.stop="deleteRegion(region)"
+            @pointerdown.stop
+          >
+            <el-icon><Delete /></el-icon>
           </button>
           <span v-else class="speaker-hotspot" :title="region.text || '点击播放'">
             <el-icon><Microphone /></el-icon>
@@ -139,6 +149,9 @@
       </el-button>
       <el-button :disabled="!selectedRegion || mode !== 'edit'" @click="deleteSelected">删除</el-button>
       <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
+      <el-button :disabled="!currentImage || mode !== 'edit'" :loading="ocrRefreshing" @click="refreshOcr">
+        重新识别
+      </el-button>
       <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
         保存全部
       </el-button>
@@ -148,7 +161,7 @@
 
 <script setup lang="ts">
 import { Check, Delete, Expand, Microphone } from '@element-plus/icons-vue';
-import { ElLoading, ElMessage } from 'element-plus';
+import { ElLoading, ElMessage, ElMessageBox } from 'element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
@@ -168,6 +181,9 @@ type TextRegion = {
   yPercent: number;
   widthPercent: number;
   heightPercent: number;
+  iconXPercent?: number | null;
+  iconYPercent?: number | null;
+  confirmed?: boolean;
   localIconReady?: boolean;
 };
 
@@ -191,6 +207,7 @@ const selectedLocalId = ref<string | null>(null);
 const historyVisible = ref(false);
 const creating = ref(false);
 const saving = ref(false);
+const ocrRefreshing = ref(false);
 const uploading = ref(false);
 const imageFrameRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
@@ -198,7 +215,18 @@ const frameSize = ref({ width: 640, height: 420 });
 const audio = ref<HTMLAudioElement | null>(null);
 const editingLocalId = ref<string | null>(null);
 const uploadLoading = ref<LoadingInstance | null>(null);
-const dragging = ref<{ region: TextRegion; startX: number; startY: number; startRegionX: number; startRegionY: number } | null>(null);
+const dragging = ref<{
+  region: TextRegion;
+  startX: number;
+  startY: number;
+  startRegionX: number;
+  startRegionY: number;
+  widthPercent: number;
+  heightPercent: number;
+  mode: 'icon' | 'box';
+  moved: boolean;
+} | null>(null);
+const suppressNextRegionClick = ref(false);
 
 const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
 const tips = computed(() => {
@@ -248,7 +276,9 @@ async function uploadImage(options: { file: File }) {
     selectedLocalId.value = null;
     editingLocalId.value = null;
     mode.value = 'edit';
-    if (data.ocrEnabled && regions.value.length === 0) {
+    if (data.cached) {
+      ElMessage.success('已从缓存加载这张图片和标注。');
+    } else if (data.ocrEnabled && regions.value.length === 0) {
       ElMessage.warning('已上传图片，但暂未识别到文字');
     } else if (data.ocrEnabled && regions.value.length > 0) {
       ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击“保存全部”。');
@@ -328,6 +358,46 @@ async function clearSaveRecords() {
   saveRecords.value = [];
 }
 
+async function refreshOcr() {
+  if (!currentImage.value) return;
+  if (regions.value.length > 0) {
+    try {
+      await ElMessageBox.confirm('重新识别会覆盖当前图片的全部文字标注，确定继续吗？', '重新识别', {
+        confirmButtonText: '重新识别',
+        cancelButtonText: '取消',
+        type: 'warning'
+      });
+    } catch {
+      return;
+    }
+  }
+  ocrRefreshing.value = true;
+  try {
+    const response = await fetch(`/api/images/${currentImage.value.id}/ocr`, { method: 'POST' });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      if (data?.regions) regions.value = data.regions.map(normalizeRegion);
+      throw new Error(data?.error ?? 'ocr failed');
+    }
+    const data = await response.json();
+    regions.value = data.regions.map(normalizeRegion);
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    creating.value = false;
+    await nextTick();
+    updateFrameSize();
+    if (regions.value.length === 0) {
+      ElMessage.warning('重新识别完成，但暂未识别到文字');
+    } else {
+      ElMessage.success('已重新识别，请检查喇叭位置。');
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error && error.message === 'ocr returned no regions' ? '重新识别失败，已保留现有标注' : '重新识别失败');
+  } finally {
+    ocrRefreshing.value = false;
+  }
+}
+
 function handleStageClick(event: MouseEvent) {
   if (!currentImage.value || !creating.value || mode.value !== 'edit' || !imageFrameRef.value) return;
   const rect = imageFrameRef.value.getBoundingClientRect();
@@ -348,6 +418,10 @@ function handleStageClick(event: MouseEvent) {
 }
 
 function handleRegionClick(region: TextRegion) {
+  if (suppressNextRegionClick.value) {
+    suppressNextRegionClick.value = false;
+    return;
+  }
   selectedLocalId.value = region.localId;
   if (region.id && mode.value === 'read') {
     playRegion(region);
@@ -362,6 +436,8 @@ function collapseRegion(region: TextRegion) {
     return;
   }
   region.text = region.text.trim();
+  region.iconXPercent = iconXPercent(region);
+  region.iconYPercent = iconYPercent(region);
   region.localIconReady = true;
   selectedLocalId.value = region.localId;
   editingLocalId.value = null;
@@ -378,7 +454,9 @@ async function saveRegions() {
         xPercent: region.xPercent,
         yPercent: region.yPercent,
         widthPercent: region.widthPercent,
-        heightPercent: region.heightPercent
+        heightPercent: region.heightPercent,
+        iconXPercent: region.iconXPercent ?? null,
+        iconYPercent: region.iconYPercent ?? null
       };
       const url = region.id
         ? `/api/text-regions/${region.id}`
@@ -391,7 +469,7 @@ async function saveRegions() {
       });
       if (!response.ok) throw new Error('save failed');
       const data = await response.json();
-      saved.push(normalizeRegion(data.region));
+      saved.push(normalizeRegion({ ...data.region, confirmed: true }));
     }
     regions.value = saved;
     await createSaveRecord();
@@ -416,6 +494,10 @@ async function createSaveRecord() {
 async function deleteSelected() {
   const region = selectedRegion.value;
   if (!region) return;
+  await deleteRegion(region);
+}
+
+async function deleteRegion(region: TextRegion) {
   if (region.id) {
     const response = await fetch(`/api/text-regions/${region.id}`, { method: 'DELETE' });
     if (!response.ok) {
@@ -446,22 +528,37 @@ async function playRegion(region: TextRegion) {
 
 function startDrag(event: PointerEvent, region: TextRegion) {
   if (mode.value !== 'edit') return;
+  const target = event.currentTarget as HTMLElement | null;
+  const frame = imageFrameRef.value;
+  if (!target || !frame) return;
+  target.setPointerCapture?.(event.pointerId);
+  const targetRect = target.getBoundingClientRect();
+  const frameRect = frame.getBoundingClientRect();
+  const dragMode = isIconRegion(region) ? 'icon' : 'box';
+  const widthPercent = (targetRect.width / frameRect.width) * 100;
+  const heightPercent = (targetRect.height / frameRect.height) * 100;
+  const currentX = dragMode === 'icon' ? iconXPercent(region) : region.xPercent;
+  const currentY = dragMode === 'icon' ? iconYPercent(region) : region.yPercent;
   selectedLocalId.value = region.localId;
   dragging.value = {
     region,
     startX: event.clientX,
     startY: event.clientY,
-    startRegionX: region.xPercent,
-    startRegionY: region.yPercent
+    startRegionX: currentX,
+    startRegionY: currentY,
+    widthPercent,
+    heightPercent,
+    mode: dragMode,
+    moved: false
   };
 }
 
 function isIconRegion(region: TextRegion) {
-  return (Boolean(region.id) || Boolean(region.localIconReady)) && editingLocalId.value !== region.localId;
+  return Boolean(region.confirmed || region.localIconReady) && editingLocalId.value !== region.localId;
 }
 
 function isEditingRegion(region: TextRegion) {
-  return mode.value === 'edit' && editingLocalId.value === region.localId && !region.localIconReady;
+  return mode.value === 'edit' && (!region.confirmed || editingLocalId.value === region.localId) && !region.localIconReady;
 }
 
 function isPersistedRegion(region: TextRegion) {
@@ -473,11 +570,27 @@ function handlePointerMove(event: PointerEvent) {
   const rect = imageFrameRef.value.getBoundingClientRect();
   const deltaX = ((event.clientX - dragging.value.startX) / rect.width) * 100;
   const deltaY = ((event.clientY - dragging.value.startY) / rect.height) * 100;
-  dragging.value.region.xPercent = clamp(dragging.value.startRegionX + deltaX, 0, 100 - dragging.value.region.widthPercent);
-  dragging.value.region.yPercent = clamp(dragging.value.startRegionY + deltaY, 0, 100 - dragging.value.region.heightPercent);
+  if (Math.hypot(event.clientX - dragging.value.startX, event.clientY - dragging.value.startY) > 4) {
+    dragging.value.moved = true;
+  }
+  const nextX = clamp(dragging.value.startRegionX + deltaX, 0, Math.max(0, 100 - dragging.value.widthPercent));
+  const nextY = clamp(dragging.value.startRegionY + deltaY, 0, Math.max(0, 100 - dragging.value.heightPercent));
+  if (dragging.value.mode === 'icon') {
+    dragging.value.region.iconXPercent = nextX;
+    dragging.value.region.iconYPercent = nextY;
+  } else {
+    dragging.value.region.xPercent = nextX;
+    dragging.value.region.yPercent = nextY;
+  }
 }
 
 function stopDrag() {
+  if (dragging.value?.moved) {
+    suppressNextRegionClick.value = true;
+    setTimeout(() => {
+      suppressNextRegionClick.value = false;
+    }, 0);
+  }
   dragging.value = null;
 }
 
@@ -499,13 +612,10 @@ function regionStyle(region: TextRegion) {
   if (isIconRegion(region)) {
     const iconWidthPercent = (38 / frameSize.value.width) * 100;
     const iconHeightPercent = (38 / frameSize.value.height) * 100;
-    const centeredX = region.xPercent + region.widthPercent / 2 - iconWidthPercent / 2;
-    const aboveY = region.yPercent - iconHeightPercent - 1;
-    const belowY = region.yPercent + region.heightPercent + 1;
 
     return {
-      left: `${clamp(centeredX, 0, 100 - iconWidthPercent)}%`,
-      top: `${clamp(aboveY >= 0 ? aboveY : belowY, 0, 100 - iconHeightPercent)}%`
+      left: `${clamp(iconXPercent(region), 0, 100 - iconWidthPercent)}%`,
+      top: `${clamp(iconYPercent(region), 0, 100 - iconHeightPercent)}%`
     };
   }
   return {
@@ -517,6 +627,7 @@ function regionStyle(region: TextRegion) {
 }
 
 function normalizeRegion(region: any): TextRegion {
+  const confirmed = Boolean(region.confirmed);
   return {
     id: region.id,
     localId: String(region.id ?? crypto.randomUUID()),
@@ -525,8 +636,25 @@ function normalizeRegion(region: any): TextRegion {
     yPercent: Number(region.yPercent),
     widthPercent: Number(region.widthPercent ?? 18),
     heightPercent: Number(region.heightPercent ?? 8),
+    iconXPercent: region.iconXPercent ?? null,
+    iconYPercent: region.iconYPercent ?? null,
+    confirmed,
     localIconReady: !region.id && Boolean(region.text)
   };
+}
+
+function iconXPercent(region: TextRegion) {
+  if (typeof region.iconXPercent === 'number') return region.iconXPercent;
+  const iconWidthPercent = (38 / frameSize.value.width) * 100;
+  return clamp(region.xPercent + region.widthPercent / 2 - iconWidthPercent / 2, 0, 100 - iconWidthPercent);
+}
+
+function iconYPercent(region: TextRegion) {
+  if (typeof region.iconYPercent === 'number') return region.iconYPercent;
+  const iconHeightPercent = (38 / frameSize.value.height) * 100;
+  const aboveY = region.yPercent - iconHeightPercent - 1;
+  const belowY = region.yPercent + region.heightPercent + 1;
+  return clamp(aboveY >= 0 ? aboveY : belowY, 0, 100 - iconHeightPercent);
 }
 
 function readImageDimensions(file: File) {

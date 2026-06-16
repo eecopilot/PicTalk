@@ -9,6 +9,13 @@
 - 数据库：SQLite。
 - TTS：`https://tts.323686.xyz/tts`，固定参数为 `v=zh-CN-XiaoxiaoMultilingualNeural&r=0&p=0&o=audio-24khz-48kbitrate-mono-mp3`。
 
+## 部署环境
+- 本地 Ubuntu Server IP：`192.168.1.30`。
+- Ubuntu Server 架构：`x86_64`（Docker 平台对应 `linux/amd64`）。
+- OCR OpenAI 兼容接口：`http://192.168.1.30:8317`。
+- Docker Compose 使用 `.env` 注入 `PORT`、`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`OCR_MODEL`，不要把 key 硬编码到 compose 文件。
+- SQLite 数据库无需初始化脚本；应用启动时会自动创建 `data/pic-reader.sqlite`、建表并执行兼容迁移。空的 `data/` 和 `public/uploads/` 目录可以直接启动。
+
 ## UI 约定
 - 图片始终在主内容区域居中显示，并保持原始比例自适应缩放。
 - 上传图片按钮固定在页面右上方。

@@ -510,20 +510,28 @@ async function deleteRegion(region: TextRegion) {
   editingLocalId.value = null;
 }
 
-async function playRegion(region: TextRegion) {
-  if (!region.id) {
+function playRegion(region: TextRegion) {
+  if (!region.id && !region.text.trim()) {
     ElMessage.warning('请先保存该文字区域');
     return;
   }
-  const response = await fetch(`/api/text-regions/${region.id}/audio`, { method: 'POST' });
-  if (!response.ok) {
-    ElMessage.error('获取声音失败');
-    return;
-  }
-  const data = await response.json();
   audio.value?.pause();
-  audio.value = new Audio(data.audioUrl);
-  await audio.value.play();
+  audio.value = new Audio(ttsUrl(region.text));
+  audio.value.preload = 'auto';
+  audio.value.setAttribute('playsinline', 'true');
+  audio.value.play().catch(() => {
+    ElMessage.error('播放失败，请确认 iPad 未静音并允许网页播放声音');
+  });
+}
+
+function ttsUrl(text: string) {
+  const url = new URL('https://tts.323686.xyz/tts');
+  url.searchParams.set('t', text);
+  url.searchParams.set('v', 'zh-CN-XiaoxiaoMultilingualNeural');
+  url.searchParams.set('r', '0');
+  url.searchParams.set('p', '0');
+  url.searchParams.set('o', 'audio-24khz-48kbitrate-mono-mp3');
+  return url.toString();
 }
 
 function startDrag(event: PointerEvent, region: TextRegion) {

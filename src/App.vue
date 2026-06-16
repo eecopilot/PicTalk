@@ -1,5 +1,5 @@
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :class="{ 'fullscreen-mode': isFullscreen }">
     <header class="top-bar">
       <div>
         <h1>
@@ -86,6 +86,18 @@
         </div>
       </template>
     </el-dialog>
+
+    <button v-if="isFullscreen" class="exit-fullscreen" @click="exitFullscreen">
+      <el-icon><Close /></el-icon>
+    </button>
+
+    <button
+      v-if="!isFullscreen && currentImage && mode === 'read'"
+      class="enter-fullscreen"
+      @click="enterFullscreen"
+    >
+      <el-icon><FullScreen /></el-icon>
+    </button>
 
     <section class="stage" @click="handleStageClick">
       <div v-if="!currentImage" class="empty-state">
@@ -201,7 +213,7 @@
 </template>
 
 <script setup lang="ts">
-import { Check, CopyDocument, Delete, Expand, Microphone } from '@element-plus/icons-vue';
+import { Check, Close, CopyDocument, Delete, Expand, FullScreen, Microphone } from '@element-plus/icons-vue';
 import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -246,6 +258,7 @@ const modelModeOptions = [
   { label: 'AI', value: 'ai' },
   { label: '非AI', value: 'manual' }
 ];
+const isFullscreen = ref(false);
 const currentImage = ref<ReaderImage | null>(null);
 const regions = ref<TextRegion[]>([]);
 const saveRecords = ref<SaveRecord[]>([]);
@@ -299,6 +312,7 @@ onMounted(() => {
   window.addEventListener('resize', updateFrameSize);
   window.addEventListener('pointermove', handlePointerMove);
   window.addEventListener('pointerup', stopDrag);
+  window.addEventListener('keydown', handleKeydown);
   loadSaveRecords();
 });
 
@@ -306,6 +320,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', updateFrameSize);
   window.removeEventListener('pointermove', handlePointerMove);
   window.removeEventListener('pointerup', stopDrag);
+  window.removeEventListener('keydown', handleKeydown);
 });
 
 async function uploadImage(options: { file: File }) {
@@ -923,8 +938,12 @@ function stopDrag() {
 
 function updateFrameSize() {
   if (!currentImage.value) return;
-  const maxWidth = Math.min(window.innerWidth - 32, 1080);
-  const maxHeight = Math.max(260, window.innerHeight - 176);
+  const maxWidth = isFullscreen.value
+    ? window.innerWidth - 32
+    : Math.min(window.innerWidth - 32, 1080);
+  const maxHeight = isFullscreen.value
+    ? window.innerHeight - 32
+    : Math.max(260, window.innerHeight - 176);
   const imageRatio = currentImage.value.width / currentImage.value.height;
   let width = maxWidth;
   let height = width / imageRatio;
@@ -1031,5 +1050,21 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit'
   });
+}
+
+function enterFullscreen() {
+  isFullscreen.value = true;
+  nextTick(() => updateFrameSize());
+}
+
+function exitFullscreen() {
+  isFullscreen.value = false;
+  nextTick(() => updateFrameSize());
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && isFullscreen.value) {
+    exitFullscreen();
+  }
 }
 </script>

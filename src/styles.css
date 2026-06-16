@@ -65,6 +65,91 @@ input {
   border-radius: 8px;
 }
 
+.el-button.fullscreen-button {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.fullscreen-mode .top-bar,
+.fullscreen-mode .bottom-toolbar {
+  display: none;
+}
+
+.fullscreen-mode {
+  padding: 0;
+}
+
+.fullscreen-mode .stage {
+  min-height: 100vh;
+  padding-top: 0;
+}
+
+.exit-fullscreen {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+.exit-fullscreen:hover {
+  background: rgba(0, 0, 0, 0.7);
+  transform: scale(1.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+.exit-fullscreen .el-icon {
+  font-size: 20px;
+}
+
+.enter-fullscreen {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+.enter-fullscreen:hover {
+  background: rgba(0, 0, 0, 0.7);
+  transform: scale(1.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+.enter-fullscreen .el-icon {
+  font-size: 20px;
+}
+
 .tips-carousel {
   width: min(520px, calc(100vw - 360px));
   margin-top: 4px;

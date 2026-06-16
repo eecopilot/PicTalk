@@ -485,6 +485,9 @@ async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: n
               'Coordinates must be pixel coordinates relative to the original image.',
               'Group all lines that form one sentence, question, caption, label, or speech bubble into one region.',
               'For multi-line text inside the same speech bubble, return one region with the full text in reading order.',
+              'Treat visible grid cells, table cells, comic panels, worksheet boxes, cards, and bordered compartments as hard boundaries.',
+              'Never merge text across a cell border, panel border, box border, or clear compartment gap, even when the text seems semantically related.',
+              'If an image is arranged as many boxed cells, return one or more regions per cell, but do not create one region spanning multiple cells.',
               'For dialogue or role-play text, split by speaker turn: each A:, B:, C:, Teacher:, Student:, or similar speaker line is its own region.',
               'Keep a speaker turn together with its translation. For example "A: Don’t play with your knife/fork. 不要玩刀叉。" is one region, and "B: Don’t point chopsticks at others. 不要把筷子指向别人。" is another region.',
               'Never merge two different speaker turns into one region, even when they are inside the same table cell or speech bubble.',
@@ -498,7 +501,7 @@ async function detectTextRegions(imageBuffer: Buffer, mimeType: string, width: n
             content: [
               {
                 type: 'text',
-                text: `Detect all readable text in this image. Original image size is ${width}x${height}. Return JSON exactly like {"regions":[{"text":"Culturally interested.","x":10,"y":20,"width":120,"height":80}]}. If text is split across multiple lines but belongs to the same sentence, question, caption, label, or speech bubble, merge it into one region. For example, "Culturally" above "interested." must become one region with text "Culturally interested."; "Why" above "English?" must become one region with text "Why English?". If a block contains dialogue labels such as A: and B:, split each speaker turn into its own region. For example, return "A: Don’t play with your knife/fork. 不要玩刀叉。" and "B: Don’t point chopsticks at others. 不要把筷子指向别人。" as two separate regions.`
+                text: `Detect all readable text in this image. Original image size is ${width}x${height}. Return JSON exactly like {"regions":[{"text":"Culturally interested.","x":10,"y":20,"width":120,"height":80}]}. If text is split across multiple lines but belongs to the same sentence, question, caption, label, or speech bubble inside the same visual compartment, merge it into one region. For example, "Culturally" above "interested." in the same cell must become one region with text "Culturally interested."; "Why" above "English?" in the same bubble must become one region with text "Why English?". If the image is divided into a grid, table, comic panels, worksheet boxes, bordered cards, or separate cells, treat each cell/panel/box/card as a hard boundary and never merge text across that boundary. If a block contains dialogue labels such as A: and B:, split each speaker turn into its own region. For example, return "A: Don’t play with your knife/fork. 不要玩刀叉。" and "B: Don’t point chopsticks at others. 不要把筷子指向别人。" as two separate regions.`
               },
               {
                 type: 'image_url',
@@ -639,10 +642,24 @@ function shouldMergeOcrLines(a: PixelOcrRegion, b: PixelOcrRegion) {
   const centerDelta = Math.abs(centerX(a) - centerX(b));
   const maxWidth = Math.max(a.width, b.width);
   const overlap = horizontalOverlap(a, b);
-  const likelySameBlock = verticalGap >= -averageHeight * 0.35 && verticalGap <= averageHeight * 1.4;
+  const likelyCellBoundaryGap = verticalGap > averageHeight * 0.75 && !isObviousLineContinuation(top.text, bottom.text);
+  const likelySameBlock = verticalGap >= -averageHeight * 0.35 && verticalGap <= averageHeight * 0.9;
   const aligned = overlap > 0 || centerDelta <= maxWidth * 0.75;
   const samePhraseScale = Math.min(a.width, b.width) / Math.max(a.width, b.width) > 0.25;
-  return likelySameBlock && aligned && samePhraseScale;
+  return !likelyCellBoundaryGap && likelySameBlock && aligned && samePhraseScale;
+}
+
+function isObviousLineContinuation(topText: string, bottomText: string) {
+  const top = topText.trim();
+  const bottom = bottomText.trim();
+  if (!top || !bottom) return false;
+  if (/[-–—/]$/.test(top)) return true;
+  if (/[([{（《“"']$/.test(top)) return true;
+  if (/^[a-z]/.test(bottom)) return true;
+  if (/^(why|what|who|where|when|how|which|whose|can|could|do|does|did|is|are|am|will|would|should|may|might|have|has|had)$/i.test(top)) {
+    return true;
+  }
+  return false;
 }
 
 function mergeOcrGroup(group: PixelOcrRegion[]): PixelOcrRegion {

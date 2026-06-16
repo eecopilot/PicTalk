@@ -6,8 +6,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY . .
 RUN npm run build
@@ -19,7 +19,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8787
 
-COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server ./server
 COPY --from=build /app/dist ./dist

@@ -247,17 +247,18 @@ input {
   height: 38px !important;
   min-width: 38px;
   min-height: 38px;
-  border: 2px solid rgba(32, 122, 78, 0.82);
+  border: 2px solid rgba(32, 122, 78, 0.42);
   border-radius: 50%;
-  color: #0e6847;
-  background: rgba(255, 255, 255, 0.9);
+  color: rgba(14, 104, 71, 0.72);
+  background: rgba(255, 255, 255, 0.46);
   cursor: move;
-  box-shadow: 0 8px 20px rgba(18, 77, 54, 0.2);
+  box-shadow: 0 8px 20px rgba(18, 77, 54, 0.1);
 }
 
 .region-marker.icon.selected {
-  border-color: #f08c00;
-  color: #a35c00;
+  border-color: rgba(240, 140, 0, 0.62);
+  color: rgba(163, 92, 0, 0.82);
+  background: rgba(255, 248, 232, 0.56);
 }
 
 .region-marker.persisted {

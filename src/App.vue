@@ -539,10 +539,20 @@ function playRegion(region: TextRegion) {
   player.pause();
   player.currentTime = 0;
   player.src = ttsUrl(region.text);
+  player.onended = () => clearPlayingSelection(region.localId);
+  player.onerror = () => clearPlayingSelection(region.localId);
+  player.onabort = () => clearPlayingSelection(region.localId);
   player.play().catch((error: unknown) => {
+    clearPlayingSelection(region.localId);
     const message = error instanceof Error ? error.name || error.message : '未知错误';
     ElMessage.error(`播放失败：${message}。请确认 iPad 未静音，并检查该音频地址能否访问。`);
   });
+}
+
+function clearPlayingSelection(localId: string) {
+  if (selectedLocalId.value === localId && mode.value === 'read') {
+    selectedLocalId.value = null;
+  }
 }
 
 function ttsUrl(text: string) {

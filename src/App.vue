@@ -31,124 +31,34 @@
       </div>
     </header>
 
-    <el-drawer v-model="historyVisible" title="保存历史" direction="rtl" size="320px">
-      <div class="history-drawer">
-        <el-segmented v-model="historyTab" :options="historyTabOptions" />
+    <HistoryDrawer
+      v-model:visible="historyVisible"
+      v-model:tab="historyTab"
+      :books="books"
+      :save-records="saveRecords"
+      @create-book="openCreateBookDialog"
+      @load-book="loadBook"
+      @delete-book="deleteBook"
+      @load-record="loadHistoryRecord"
+      @delete-record="deleteSaveRecord"
+      @clear-history="clearSaveRecords"
+    />
 
-        <div v-if="historyTab === 'books'" class="history-content">
-          <div class="create-book-button-wrapper">
-            <el-button type="primary" :icon="Plus" @click="openCreateBookDialog">创建新书本</el-button>
-          </div>
-          <div v-if="books.length === 0" class="history-empty">暂无书本</div>
-          <div v-else class="history-list">
-            <article
-              v-for="book in books"
-              :key="book.id"
-              class="history-item"
-              role="button"
-              tabindex="0"
-              @click.prevent.stop="loadBook(book)"
-              @keydown.enter.prevent.stop="loadBook(book)"
-            >
-              <div class="history-item-content">
-                <strong>{{ book.name }}</strong>
-                <time>{{ formatDate(book.createdAt) }}</time>
-              </div>
-              <el-button
-                class="history-delete"
-                :icon="Delete"
-                circle
-                size="small"
-                title="删除书本"
-                @click.prevent.stop="deleteBook(book)"
-              />
-            </article>
-          </div>
-        </div>
+    <ImportDialog
+      v-model:visible="importDialogVisible"
+      v-model:json-text="importJsonText"
+      :importing="importingRegions"
+      @copy-prompt="copyOcrPrompt"
+      @import="importRegions"
+    />
 
-        <div v-if="historyTab === 'records'" class="history-content">
-          <div v-if="saveRecords.length === 0" class="history-empty">暂无保存记录</div>
-          <div v-else class="history-list">
-            <article
-              v-for="record in saveRecords"
-              :key="record.id"
-              class="history-item"
-              role="button"
-              tabindex="0"
-              @click.prevent.stop="loadHistoryRecord(record)"
-              @keydown.enter.prevent.stop="loadHistoryRecord(record)"
-            >
-              <div class="history-item-content">
-                <strong>{{ record.imageName }}</strong>
-                <span>{{ record.regionCount }} 个点读标注</span>
-                <time>{{ formatDate(record.createdAt) }}</time>
-              </div>
-              <el-button
-                class="history-delete"
-                :icon="Delete"
-                circle
-                size="small"
-                title="删除历史"
-                @click.prevent.stop="deleteSaveRecord(record)"
-              />
-            </article>
-          </div>
-        </div>
-
-        <div v-if="saveRecords.length > 0 || books.length > 0" class="history-footer">
-          <el-button class="clear-history-button" type="danger" plain @click="clearSaveRecords">
-            清空历史
-          </el-button>
-        </div>
-      </div>
-    </el-drawer>
-
-    <el-dialog v-model="importDialogVisible" title="导入 JSON" width="680px">
-      <div class="import-dialog">
-        <el-input
-          v-model="importJsonText"
-          type="textarea"
-          :rows="14"
-          placeholder='粘贴 JSON，例如 {"regions":[{"text":"...","xPercent":10,"yPercent":20,"widthPercent":18,"heightPercent":8}]}'
-        />
-      </div>
-      <template #footer>
-        <div class="import-footer">
-          <el-button :icon="CopyDocument" @click="copyOcrPrompt">复制提示词</el-button>
-          <div class="import-footer-actions">
-            <el-button @click="importDialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="importingRegions" @click="importRegions">导入</el-button>
-          </div>
-        </div>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="createBookDialogVisible" title="创建新书本" width="520px">
-      <div class="create-book-dialog">
-        <el-form label-position="top">
-          <el-form-item label="书本名称">
-            <el-input v-model="newBookName" placeholder="例如：小学英语课本第一册" clearable />
-          </el-form-item>
-          <el-form-item label="上传页面（可选）">
-            <el-upload
-              v-model:file-list="bookUploadFiles"
-              :auto-upload="false"
-              accept="image/*"
-              multiple
-              list-type="picture-card"
-              :limit="50"
-            >
-              <el-icon class="upload-icon-small"><Plus /></el-icon>
-            </el-upload>
-          </el-form-item>
-          <div class="upload-tip">可以先创建空书本，稍后在"编辑页面"中添加图片</div>
-        </el-form>
-      </div>
-      <template #footer>
-        <el-button @click="createBookDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creatingBook" @click="createBook">创建</el-button>
-      </template>
-    </el-dialog>
+    <CreateBookDialog
+      v-model:visible="createBookDialogVisible"
+      v-model:book-name="newBookName"
+      v-model:upload-files="bookUploadFiles"
+      :creating="creatingBook"
+      @create="createBook"
+    />
 
     <button v-if="isFullscreen" class="exit-fullscreen" @click="exitFullscreen">
       <el-icon><Close /></el-icon>
@@ -256,56 +166,23 @@
       </div>
     </section>
 
-    <footer class="bottom-toolbar">
-      <div class="toolbar-section">
-        <el-segmented v-model="mode" :options="modeOptions" />
-      </div>
-
-      <div class="toolbar-section" style="display: inline-flex;">
-        <el-tooltip content="请先切换到编辑模式" :disabled="mode === 'edit'" placement="top">
-          <el-button :type="creating ? 'primary' : 'default'" :disabled="!currentImage || mode !== 'edit'" @click="creating = !creating">
-            生成文字
-          </el-button>
-        </el-tooltip>
-        <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
-      </div>
-
-      <div class="toolbar-section model-toolbar">
-        <el-button-group v-if="modelMode === 'ai'">
-          <el-button :disabled="!currentImage || mode !== 'edit'" :loading="ocrRefreshing" @click="refreshOcr">
-            重新识别
-          </el-button>
-        </el-button-group>
-        <div v-else style="display: inline-flex;">
-          <el-tooltip content="请先切换到编辑模式" :disabled="mode === 'edit'" placement="top">
-            <el-button
-              :disabled="!currentImage || mode !== 'edit'"
-              :loading="importingRegions"
-              @click="openImportDialog"
-            >
-              导入 JSON
-            </el-button>
-          </el-tooltip>
-          <el-button :disabled="!currentImage" @click="exportRegionsJson">
-            导出 JSON
-          </el-button>
-        </div>
-      </div>
-
-      <div style="display: flex; gap: 8px;">
-        <el-button
-          v-if="currentBook && bookPages.length > 0"
-          type="danger"
-          :disabled="mode !== 'edit'"
-          @click="deleteCurrentPage"
-        >
-          删除当前页
-        </el-button>
-        <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
-          保存全部
-        </el-button>
-      </div>
-    </footer>
+    <ToolBar
+      v-model:mode="mode"
+      v-model:creating="creating"
+      :has-image="!!currentImage"
+      :has-book="!!currentBook"
+      :page-count="bookPages.length"
+      :model-mode="modelMode"
+      :ocr-refreshing="ocrRefreshing"
+      :importing-regions="importingRegions"
+      :saving="saving"
+      @reload="reloadImage"
+      @refresh-ocr="refreshOcr"
+      @open-import="openImportDialog"
+      @export-json="exportRegionsJson"
+      @delete-page="deleteCurrentPage"
+      @save="saveRegions"
+    />
 
     <audio ref="audioRef" class="reader-audio" preload="none" playsinline />
   </main>

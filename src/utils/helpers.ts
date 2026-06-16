@@ -69,7 +69,7 @@ export function buildManualOcrPrompt(image: ReaderImage) {
     'Never merge text across a cell border, panel border, box border, or clear compartment gap, even when the text seems semantically related.',
     'If an image is arranged as many boxed cells, return one or more regions per cell, but do not create one region spanning multiple cells.',
     'For dialogue or role-play text, split by speaker turn: each A:, B:, C:, Teacher:, Student:, or similar speaker line is its own region.',
-    'Keep a speaker turn together with its translation. For example "A: Don't play with your knife/fork. 不要玩刀叉。" is one region, and "B: Don't point chopsticks at others. 不要把筷子指向别人。" is another region.',
+    'Keep a speaker turn together with its translation. For example "A: Don\'t play with your knife/fork. 不要玩刀叉。" is one region, and "B: Don\'t point chopsticks at others. 不要把筷子指向别人。" is another region.',
     'Never merge two different speaker turns into one region, even when they are inside the same table cell or speech bubble.',
     'Use spaces between joined lines unless punctuation already separates them.',
     'If exact boxes are hard, estimate one tight box around the whole phrase or sentence.',

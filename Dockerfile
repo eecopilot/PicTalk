@@ -13,7 +13,7 @@ COPY package*.json ./
 # 2. 使用 BuildKit 缓存挂载加速 npm 安装
 # --mount=type=cache 会在多次构建间保留 npm 缓存
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline --no-audit
+    npm ci --no-audit
 
 # 3. 复制源代码（只有代码改变时才会重新构建）
 COPY . .

@@ -221,7 +221,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown);
 });
 
-async function uploadImage(options: { file: File }) {
+async function uploadImage(options: unknown) {
+  const file = resolveUploadFile(options);
+  if (!file) {
+    ElMessage.error('上传失败：没有读取到图片文件');
+    return;
+  }
+
   uploading.value = true;
   uploadLoading.value = ElLoading.service({
     lock: true,
@@ -230,13 +236,13 @@ async function uploadImage(options: { file: File }) {
   });
   try {
     const body = new FormData();
-    const dimensions = await readImageDimensions(options.file);
-    body.append('image', options.file);
+    const dimensions = await readImageDimensions(file);
+    body.append('image', file);
     body.append('width', String(dimensions.width));
     body.append('height', String(dimensions.height));
     const response = await fetch('/api/images', { method: 'POST', body });
     if (!response.ok) {
-      ElMessage.error('上传失败');
+      ElMessage.error(await responseErrorMessage(response, '上传失败'));
       return;
     }
     const data = await response.json();
@@ -249,7 +255,7 @@ async function uploadImage(options: { file: File }) {
         body: JSON.stringify({ imageId: data.image.id })
       });
       if (!pageResponse.ok) {
-        ElMessage.error('添加页面失败');
+        ElMessage.error(await responseErrorMessage(pageResponse, '添加页面失败'));
         return;
       }
 
@@ -283,8 +289,8 @@ async function uploadImage(options: { file: File }) {
     }
     await nextTick();
     updateFrameSize();
-  } catch {
-    ElMessage.error('上传或识别失败');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `上传或识别失败：${error.message}` : '上传或识别失败');
   } finally {
     uploading.value = false;
     uploadLoading.value?.close();
@@ -983,7 +989,8 @@ async function createBook() {
     // 如果有图片，上传所有图片并添加到书本
     if (bookUploadFiles.value.length > 0) {
       for (let i = 0; i < bookUploadFiles.value.length; i++) {
-        const file = bookUploadFiles.value[i].raw;
+        const file = resolveUploadFile(bookUploadFiles.value[i]);
+        if (!file) throw new Error(`第 ${i + 1} 张图片文件读取失败`);
         const dimensions = await readImageDimensions(file);
         const formData = new FormData();
         formData.append('image', file);
@@ -1039,6 +1046,22 @@ async function createBook() {
     uploadLoading.value?.close();
     uploadLoading.value = null;
   }
+}
+
+function resolveUploadFile(source: unknown): File | null {
+  if (source instanceof File) return source;
+  if (!source || typeof source !== 'object') return null;
+
+  const uploadLike = source as { file?: unknown; raw?: unknown };
+  if (uploadLike.file instanceof File) return uploadLike.file;
+  if (uploadLike.raw instanceof File) return uploadLike.raw;
+  return null;
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  const data = await response.json().catch(() => null);
+  const detail = data?.error || data?.details;
+  return detail ? `${fallback}：${detail}` : fallback;
 }
 
 function enterFullscreen() {

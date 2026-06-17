@@ -116,7 +116,8 @@ import {
   buildManualOcrPrompt,
   copyTextToClipboard,
   parseImportedRegions,
-  formatOcrError
+  formatOcrError,
+  createLocalId
 } from './utils/helpers';
 
 const mode = ref<'edit' | 'read'>('edit');
@@ -626,7 +627,7 @@ function handleStageClick(event: MouseEvent) {
   const xPercent = clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 95);
   const yPercent = clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 95);
   const region: TextRegion = {
-    localId: crypto.randomUUID(),
+    localId: createLocalId(),
     text: '',
     xPercent,
     yPercent,

@@ -22,11 +22,18 @@ export function formatDate(value: string) {
   });
 }
 
+export function createLocalId() {
+  if (globalThis.crypto && 'randomUUID' in globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function normalizeRegion(region: any): TextRegion {
   const confirmed = Boolean(region.confirmed);
   return {
     id: region.id,
-    localId: String(region.id ?? crypto.randomUUID()),
+    localId: String(region.id ?? createLocalId()),
     text: region.text ?? '',
     xPercent: Number(region.xPercent),
     yPercent: Number(region.yPercent),

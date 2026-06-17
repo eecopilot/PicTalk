@@ -29,7 +29,7 @@
         :marker-style="regionStyles[region.localId] || {}"
         :is-icon="iconFlags[region.localId] || false"
         @click="$emit('region-click', region)"
-        @pointerdown="$emit('region-pointerdown', $event, region)"
+        @pointerdown="(event, markerRegion, dragMode) => $emit('region-pointerdown', event, markerRegion, dragMode)"
         @select="$emit('region-select', $event)"
         @collapse="$emit('collapse-region', region)"
         @delete="$emit('delete-region', region)"
@@ -59,7 +59,7 @@ defineEmits<{
   'stage-click': [event: MouseEvent];
   'image-load': [];
   'region-click': [region: TextRegion];
-  'region-pointerdown': [event: PointerEvent, region: TextRegion];
+  'region-pointerdown': [event: PointerEvent, region: TextRegion, dragMode?: 'box' | 'resize'];
   'region-select': [localId: string];
   'collapse-region': [region: TextRegion];
   'delete-region': [region: TextRegion];

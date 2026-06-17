@@ -21,7 +21,7 @@
       v-model="region.text"
       class="region-input"
       type="textarea"
-      :autosize="{ minRows: 1, maxRows: 4 }"
+      resize="none"
       placeholder="输入文字"
       @click.stop
       @pointerdown.stop
@@ -29,7 +29,7 @@
     />
     <button
       v-if="isEditing"
-      class="inline-save"
+      class="marker-action inline-save"
       title="收起为喇叭"
       @click.stop="$emit('collapse', region)"
       @pointerdown.stop
@@ -38,12 +38,30 @@
     </button>
     <button
       v-if="isEditing"
-      class="inline-delete"
+      class="marker-action inline-delete"
       title="删除该标注"
       @click.stop="$emit('delete', region)"
       @pointerdown.stop
     >
       <el-icon><Delete /></el-icon>
+    </button>
+    <button
+      v-if="isEditing"
+      class="marker-action drag-handle"
+      title="拖动标注"
+      @click.stop
+      @pointerdown.stop="handlePointerDown($event, 'box')"
+    >
+      <el-icon><Rank /></el-icon>
+    </button>
+    <button
+      v-if="isEditing"
+      class="marker-action resize-handle"
+      title="调整大小"
+      @click.stop
+      @pointerdown.stop="handlePointerDown($event, 'resize')"
+    >
+      <el-icon><BottomRight /></el-icon>
     </button>
     <span v-else class="speaker-hotspot" :title="region.text || '点击播放'">
       <el-icon><Microphone /></el-icon>
@@ -52,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { Check, Delete, Microphone } from '@element-plus/icons-vue';
+import { BottomRight, Check, Delete, Microphone, Rank } from '@element-plus/icons-vue';
 import type { TextRegion } from '../types';
 import { computed } from 'vue';
 
@@ -68,7 +86,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   click: [region: TextRegion];
-  pointerdown: [event: PointerEvent, region: TextRegion];
+  pointerdown: [event: PointerEvent, region: TextRegion, dragMode?: 'box' | 'resize'];
   select: [localId: string];
   collapse: [region: TextRegion];
   delete: [region: TextRegion];
@@ -87,7 +105,7 @@ function handleClick() {
   emit('click', props.region);
 }
 
-function handlePointerDown(event: PointerEvent) {
-  emit('pointerdown', event, props.region);
+function handlePointerDown(event: PointerEvent, dragMode: 'box' | 'resize' = 'box') {
+  emit('pointerdown', event, props.region, dragMode);
 }
 </script>

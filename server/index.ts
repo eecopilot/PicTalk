@@ -887,10 +887,18 @@ function horizontalOverlap(a: PixelOcrRegion, b: PixelOcrRegion) {
 
 function normalizeOcrRegion(region: any, imageWidth: number, imageHeight: number): OcrRegion | null {
   const text = String(region.text ?? '').trim();
-  const x = Number(region.x);
-  const y = Number(region.y);
-  const width = Number(region.width);
-  const height = Number(region.height);
+  const x = firstFiniteNumber(region.x, region.left, region.x1);
+  const y = firstFiniteNumber(region.y, region.top, region.y1);
+  const width = firstFiniteNumber(
+    region.width,
+    region.w,
+    Number.isFinite(firstFiniteNumber(region.right, region.x2)) && Number.isFinite(x) ? firstFiniteNumber(region.right, region.x2) - x : NaN
+  );
+  const height = firstFiniteNumber(
+    region.height,
+    region.h,
+    Number.isFinite(firstFiniteNumber(region.bottom, region.y2)) && Number.isFinite(y) ? firstFiniteNumber(region.bottom, region.y2) - y : NaN
+  );
   if (!text || ![x, y, width, height].every(Number.isFinite)) return null;
   if (width <= 0 || height <= 0 || imageWidth <= 0 || imageHeight <= 0) return null;
 
@@ -928,6 +936,14 @@ function normalizeImportedRegion(region: any, imageWidth: number, imageHeight: n
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function firstFiniteNumber(...values: unknown[]) {
+  for (const value of values) {
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) return numberValue;
+  }
+  return NaN;
 }
 
 function md5(buffer: Buffer) {

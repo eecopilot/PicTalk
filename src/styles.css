@@ -675,7 +675,9 @@ input {
 
 .region-marker.editing {
   min-width: 96px;
+  min-height: 40px;
   overflow: visible;
+  cursor: text;
 }
 
 .region-marker.reading {
@@ -710,38 +712,65 @@ input {
 
 .region-input {
   width: 100%;
-  min-height: 32px;
+  height: 100%;
+  min-height: 100%;
+}
+
+.region-input .el-textarea {
+  height: 100%;
 }
 
 .region-input .el-textarea__inner {
-  min-height: 32px !important;
-  padding: 5px 8px;
+  height: 100% !important;
+  min-height: 100% !important;
+  padding: 4px 24px 4px 7px;
   border: 0;
   border-radius: 4px;
   outline: 0;
   resize: none;
+  overflow: auto;
   color: #1e2a3a;
   background: transparent;
   box-shadow: none;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.25;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(58, 87, 132, 0.36) transparent;
 }
 
-.inline-save {
+.region-input .el-textarea__inner::-webkit-scrollbar {
+  width: 4px;
+}
+
+.region-input .el-textarea__inner::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(58, 87, 132, 0.36);
+}
+
+.marker-action {
   position: absolute;
-  top: -14px;
-  right: -14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border: 1px solid #2f8f60;
+  border: 1px solid transparent;
   border-radius: 50%;
   color: #fff;
-  background: #2f8f60;
   cursor: pointer;
-  box-shadow: 0 6px 14px rgba(47, 143, 96, 0.26);
+  box-shadow: 0 4px 10px rgba(26, 35, 52, 0.18);
+}
+
+.marker-action .el-icon {
+  font-size: 13px;
+}
+
+.inline-save {
+  top: -10px;
+  right: -10px;
+  border-color: #2f8f60;
+  background: #2f8f60;
 }
 
 .inline-save:hover {
@@ -749,25 +778,36 @@ input {
 }
 
 .inline-delete {
-  position: absolute;
-  top: -14px;
-  left: -14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid #d94841;
-  border-radius: 50%;
-  color: #fff;
+  bottom: -10px;
+  left: -10px;
+  border-color: #d94841;
   background: #d94841;
-  cursor: pointer;
-  box-shadow: 0 6px 14px rgba(143, 28, 28, 0.26);
 }
 
 .inline-delete:hover {
   background: #bd3832;
+}
+
+.drag-handle {
+  top: -10px;
+  left: -10px;
+  border-color: #3b7ee8;
+  background: #3b7ee8;
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.resize-handle {
+  right: -10px;
+  bottom: -10px;
+  border-color: #526070;
+  background: #526070;
+  cursor: nwse-resize;
+  touch-action: none;
 }
 
 .bottom-toolbar {

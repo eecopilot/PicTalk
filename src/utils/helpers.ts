@@ -116,19 +116,149 @@ function copyTextWithSelection(text: string) {
 
 export function parseImportedRegions(text: string): { regions: any[] } | null {
   const normalizedText = normalizeImportedJsonText(text);
-  try {
-    const parsed = JSON.parse(normalizedText);
-    return Array.isArray(parsed?.regions) ? parsed : null;
-  } catch {
-    const match = normalizedText.match(/\{[\s\S]*"regions"[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      const parsed = JSON.parse(match[0]);
-      return Array.isArray(parsed?.regions) ? parsed : null;
-    } catch {
-      return null;
+  const looseRegions = parseLooseRegions(normalizedText);
+  const candidates = uniqueTexts([
+    normalizedText,
+    repairMalformedRegionJson(normalizedText)
+  ]);
+
+  let bestParsed = looseRegions.length > 0 ? { regions: looseRegions } : null;
+  for (const candidate of candidates) {
+    const parsed = parseRegionsPayload(candidate)
+      ?? parseRegionsPayload(`{${candidate}}`)
+      ?? parseRegionsPayload(extractJsonObject(candidate))
+      ?? parseRegionsPayload(extractJsonArray(candidate));
+    if (parsed && (!bestParsed || parsed.regions.length > bestParsed.regions.length)) {
+      bestParsed = parsed;
     }
   }
+  return bestParsed;
+}
+
+function parseRegionsPayload(text: string | null): { regions: any[] } | null {
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    const regions = findRegionsArray(parsed);
+    return regions ? { regions } : null;
+  } catch {
+    return null;
+  }
+}
+
+function findRegionsArray(value: unknown): any[] | null {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object') return null;
+
+  const objectValue = value as Record<string, unknown>;
+  if (Array.isArray(objectValue.regions)) return objectValue.regions;
+
+  for (const nestedValue of Object.values(objectValue)) {
+    const regions = findRegionsArray(nestedValue);
+    if (regions) return regions;
+  }
+  return null;
+}
+
+function extractJsonObject(text: string) {
+  return extractBalancedJson(text, '{', '}');
+}
+
+function extractJsonArray(text: string) {
+  return extractBalancedJson(text, '[', ']');
+}
+
+function extractBalancedJson(text: string, open: string, close: string) {
+  const start = text.indexOf(open);
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === open) depth += 1;
+    if (char === close) depth -= 1;
+    if (depth === 0) return text.slice(start, index + 1);
+  }
+  return null;
+}
+
+function repairMalformedRegionJson(text: string) {
+  return text
+    .replace(
+      /\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,([\s\S]*?)\}\s*,\s*"width"\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*"height"\s*:\s*(-?\d+(?:\.\d+)?)\s*\}/g,
+      (_match, rawText: string, body: string, width: string, height: string) => buildRepairedRegion(rawText, body, width, height)
+    )
+    .replace(
+      /\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,([\s\S]*?)\}\s*,\s*"height"\s*:\s*(-?\d+(?:\.\d+)?)\s*\}/g,
+      (_match, rawText: string, body: string, height: string) => buildRepairedRegion(rawText, body, firstNumberForKey(body, 'width'), height)
+    )
+    .replace(
+      /\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,([\s\S]*?)\}\s*,\s*"width"\s*:\s*(-?\d+(?:\.\d+)?)\s*\}/g,
+      (_match, rawText: string, body: string, width: string) => buildRepairedRegion(rawText, body, width, firstNumberForKey(body, 'height'))
+    );
+}
+
+function parseLooseRegions(text: string) {
+  const regions: any[] = [];
+  const regionPattern = /\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,([\s\S]*?)(?=,\s*\{\s*"text"\s*:|\]\s*\}?|$)/g;
+  for (const match of text.matchAll(regionPattern)) {
+    const rawText = match[1];
+    const body = match[2];
+    const x = firstNumberForKey(body, 'x');
+    const y = firstNumberForKey(body, 'y');
+    const width = firstNumberForKey(body, 'width');
+    const height = firstNumberForKey(body, 'height');
+    if (!x || !y || !width || !height) continue;
+    regions.push({
+      text: unescapeJsonString(rawText),
+      x: Number(x),
+      y: Number(y),
+      width: Number(width),
+      height: Number(height)
+    });
+  }
+  return regions;
+}
+
+function unescapeJsonString(value: string) {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch {
+    return value;
+  }
+}
+
+function buildRepairedRegion(rawText: string, body: string, width: string | null, height: string | null) {
+  const x = firstNumberForKey(body, 'x');
+  const y = firstNumberForKey(body, 'y');
+  if (!x || !y || !width || !height) {
+    return `{"text":"${rawText}",${body}}`;
+  }
+  return `{"text":"${rawText}","x":${x},"y":${y},"width":${width},"height":${height}}`;
+}
+
+function firstNumberForKey(text: string, key: string) {
+  const match = new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`).exec(text);
+  return match?.[1] ?? null;
+}
+
+function uniqueTexts(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function normalizeImportedJsonText(text: string) {

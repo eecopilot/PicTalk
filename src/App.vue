@@ -170,7 +170,7 @@ const dragging = ref<{
   startRegionY: number;
   widthPercent: number;
   heightPercent: number;
-  mode: 'icon' | 'box';
+  mode: 'icon' | 'box' | 'resize';
   moved: boolean;
 } | null>(null);
 const suppressNextRegionClick = ref(false);
@@ -568,7 +568,7 @@ async function importRegions() {
       body: JSON.stringify({ regions: parsed.regions })
     });
     if (!response.ok) {
-      throw new Error('import failed');
+      throw new Error(await responseErrorMessage(response, '导入失败'));
     }
     const data = await response.json();
     regions.value = data.regions.map(normalizeRegion);
@@ -582,8 +582,8 @@ async function importRegions() {
     await nextTick();
     updateFrameSize();
     ElMessage.success(`已导入 ${regions.value.length} 个标注，请检查后保存`);
-  } catch {
-    ElMessage.error('导入失败，请检查 JSON 格式');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '导入失败，请检查 JSON 格式');
   } finally {
     importingRegions.value = false;
   }
@@ -813,7 +813,7 @@ function ttsUrl(text: string) {
   return url.toString();
 }
 
-function startDrag(event: PointerEvent, region: TextRegion) {
+function startDrag(event: PointerEvent, region: TextRegion, requestedMode: 'box' | 'resize' = 'box') {
   if (mode.value !== 'edit') return;
   const target = event.currentTarget as HTMLElement | null;
   const frame = imageFrameRef.value;
@@ -821,9 +821,9 @@ function startDrag(event: PointerEvent, region: TextRegion) {
   target.setPointerCapture?.(event.pointerId);
   const targetRect = target.getBoundingClientRect();
   const frameRect = frame.getBoundingClientRect();
-  const dragMode = isIconRegion(region) ? 'icon' : 'box';
-  const widthPercent = (targetRect.width / frameRect.width) * 100;
-  const heightPercent = (targetRect.height / frameRect.height) * 100;
+  const dragMode = isIconRegion(region) ? 'icon' : requestedMode;
+  const widthPercent = dragMode === 'resize' ? region.widthPercent : (targetRect.width / frameRect.width) * 100;
+  const heightPercent = dragMode === 'resize' ? region.heightPercent : (targetRect.height / frameRect.height) * 100;
   const currentX = dragMode === 'icon' ? iconXPercent(region) : region.xPercent;
   const currentY = dragMode === 'icon' ? iconYPercent(region) : region.yPercent;
   selectedLocalId.value = region.localId;
@@ -862,7 +862,10 @@ function handlePointerMove(event: PointerEvent) {
   }
   const nextX = clamp(dragging.value.startRegionX + deltaX, 0, Math.max(0, 100 - dragging.value.widthPercent));
   const nextY = clamp(dragging.value.startRegionY + deltaY, 0, Math.max(0, 100 - dragging.value.heightPercent));
-  if (dragging.value.mode === 'icon') {
+  if (dragging.value.mode === 'resize') {
+    dragging.value.region.widthPercent = clamp(dragging.value.widthPercent + deltaX, 6, Math.max(6, 100 - dragging.value.region.xPercent));
+    dragging.value.region.heightPercent = clamp(dragging.value.heightPercent + deltaY, 4, Math.max(4, 100 - dragging.value.region.yPercent));
+  } else if (dragging.value.mode === 'icon') {
     dragging.value.region.iconXPercent = nextX;
     dragging.value.region.iconYPercent = nextY;
   } else {

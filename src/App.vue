@@ -1,269 +1,145 @@
 <template>
   <main class="app-shell" :class="{ 'fullscreen-mode': isFullscreen }">
-    <header class="top-bar">
-      <div>
-        <h1>
-          <img class="brand-logo" src="/logo.svg?v=2" alt="图片点读机" />
-        </h1>
-        <el-carousel
-          class="tips-carousel"
-          height="24px"
-          direction="vertical"
-          indicator-position="none"
-          :interval="3600"
-          arrow="never"
-        >
-          <el-carousel-item v-for="tip in tips" :key="tip">
-            <p>{{ tip }}</p>
-          </el-carousel-item>
-        </el-carousel>
-      </div>
-      <div class="top-actions">
-        <el-upload
-          :show-file-list="false"
-          :http-request="uploadImage"
-          accept="image/*"
-          class="upload-control"
-        >
-          <el-button type="primary" :loading="uploading">上传图片</el-button>
-        </el-upload>
-        <el-button class="history-button" :icon="Expand" @click="openHistory" />
-      </div>
-    </header>
+    <AppHeader
+      :tips="tips"
+      :current-book="currentBook"
+      :uploading="uploading"
+      @open-history="openHistory"
+      @upload="uploadImage"
+    />
 
-    <el-drawer v-model="historyVisible" title="保存历史" direction="rtl" size="320px">
-      <div class="history-drawer">
-        <div v-if="saveRecords.length === 0" class="history-empty">暂无保存记录</div>
-        <div v-else class="history-list">
-          <article
-            v-for="record in saveRecords"
-            :key="record.id"
-            class="history-item"
-            role="button"
-            tabindex="0"
-            @click.prevent.stop="loadHistoryRecord(record)"
-            @keydown.enter.prevent.stop="loadHistoryRecord(record)"
-          >
-            <div class="history-item-content">
-              <strong>{{ record.imageName }}</strong>
-              <span>{{ record.regionCount }} 个点读标注</span>
-              <time>{{ formatDate(record.createdAt) }}</time>
-            </div>
-            <el-button
-              class="history-delete"
-              :icon="Delete"
-              circle
-              size="small"
-              title="删除历史"
-              @click.prevent.stop="deleteSaveRecord(record)"
-            />
-          </article>
-        </div>
-        <div v-if="saveRecords.length > 0" class="history-footer">
-          <el-button class="clear-history-button" type="danger" plain @click="clearSaveRecords">
-            清空历史
-          </el-button>
-        </div>
-      </div>
-    </el-drawer>
+    <HistoryDrawer
+      v-model:visible="historyVisible"
+      v-model:tab="historyTab"
+      :books="books"
+      :save-records="saveRecords"
+      @create-book="openCreateBookDialog"
+      @load-book="loadBook"
+      @delete-book="deleteBook"
+      @load-record="loadHistoryRecord"
+      @delete-record="deleteSaveRecord"
+      @clear-history="clearSaveRecords"
+    />
 
-    <el-dialog v-model="importDialogVisible" title="导入 JSON" width="680px">
-      <div class="import-dialog">
-        <el-input
-          v-model="importJsonText"
-          type="textarea"
-          :rows="14"
-          placeholder='粘贴 JSON，例如 {"regions":[{"text":"...","xPercent":10,"yPercent":20,"widthPercent":18,"heightPercent":8}]}'
-        />
-      </div>
-      <template #footer>
-        <div class="import-footer">
-          <el-button :icon="CopyDocument" @click="copyOcrPrompt">复制提示词</el-button>
-          <div class="import-footer-actions">
-            <el-button @click="importDialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="importingRegions" @click="importRegions">导入</el-button>
-          </div>
-        </div>
-      </template>
-    </el-dialog>
+    <ImportDialog
+      v-model:visible="importDialogVisible"
+      v-model:json-text="importJsonText"
+      :importing="importingRegions"
+      @copy-prompt="copyOcrPrompt"
+      @import="importRegions"
+    />
 
-    <button v-if="isFullscreen" class="exit-fullscreen" @click="exitFullscreen">
-      <el-icon><Close /></el-icon>
-    </button>
+    <CreateBookDialog
+      v-model:visible="createBookDialogVisible"
+      v-model:book-name="newBookName"
+      v-model:upload-files="bookUploadFiles"
+      :creating="creatingBook"
+      @create="createBook"
+    />
 
-    <button
-      v-if="!isFullscreen && currentImage && mode === 'read'"
-      class="enter-fullscreen"
-      @click="enterFullscreen"
-    >
-      <el-icon><FullScreen /></el-icon>
-    </button>
+    <NavigationControls
+      :is-fullscreen="isFullscreen"
+      :has-image="!!currentImage"
+      :has-book="!!currentBook"
+      :mode="mode"
+      :current-page-index="currentPageIndex"
+      :page-count="bookPages.length"
+      @exit-fullscreen="exitFullscreen"
+      @enter-fullscreen="enterFullscreen"
+      @previous-page="previousPage"
+      @next-page="nextPage"
+    />
 
-    <section class="stage" @click="handleStageClick">
-      <div v-if="!currentImage" class="empty-state">
-        <h2>上传一张图片开始点读标注</h2>
-        <p>图片会居中显示，底部工具栏用于切换编辑和阅读。</p>
-      </div>
+    <StageArea
+      ref="stageAreaRef"
+      :current-image="currentImage"
+      :regions="regions"
+      :mode="mode"
+      :selected-local-id="selectedLocalId"
+      :editing-local-id="editingLocalId"
+      :playing-local-id="playingLocalId"
+      :frame-size="frameSize"
+      :region-styles="regionStyles"
+      :icon-flags="iconFlags"
+      @stage-click="handleStageClick"
+      @image-load="updateFrameSize"
+      @region-click="handleRegionClick"
+      @region-pointerdown="startDrag"
+      @region-select="localId => selectedLocalId = localId"
+      @collapse-region="collapseRegion"
+      @delete-region="deleteRegion"
+    />
 
-      <div
-        v-else
-        ref="imageFrameRef"
-        class="image-frame"
-        :style="{ width: frameSize.width + 'px', height: frameSize.height + 'px' }"
-      >
-        <img
-          ref="imageRef"
-          :src="currentImage.url"
-          :alt="currentImage.originalName"
-          @load="updateFrameSize"
-        />
-
-        <div
-          v-for="region in regions"
-          :key="region.localId"
-          role="button"
-          tabindex="0"
-          class="region-marker"
-          :class="{
-            selected: region.localId === selectedLocalId || region.localId === playingLocalId,
-            reading: mode === 'read',
-            editable: mode === 'edit',
-            icon: isIconRegion(region),
-            playing: region.localId === playingLocalId,
-            persisted: isPersistedRegion(region),
-            editing: isEditingRegion(region)
-          }"
-          :style="regionStyle(region)"
-          @click.stop="handleRegionClick(region)"
-          @pointerdown.stop="startDrag($event, region)"
-        >
-          <el-input
-            v-if="isEditingRegion(region)"
-            v-model="region.text"
-            class="region-input"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 4 }"
-            placeholder="输入文字"
-            @click.stop
-            @pointerdown.stop
-            @focusin="selectedLocalId = region.localId"
-          />
-          <button
-            v-if="isEditingRegion(region)"
-            class="inline-save"
-            title="收起为喇叭"
-            @click.stop="collapseRegion(region)"
-            @pointerdown.stop
-          >
-            <el-icon><Check /></el-icon>
-          </button>
-          <button
-            v-if="isEditingRegion(region)"
-            class="inline-delete"
-            title="删除该标注"
-            @click.stop="deleteRegion(region)"
-            @pointerdown.stop
-          >
-            <el-icon><Delete /></el-icon>
-          </button>
-          <span v-else class="speaker-hotspot" :title="region.text || '点击播放'">
-            <el-icon><Microphone /></el-icon>
-          </span>
-        </div>
-      </div>
-    </section>
-
-    <footer class="bottom-toolbar">
-      <div class="toolbar-section">
-        <el-segmented v-model="mode" :options="modeOptions" />
-      </div>
-
-      <el-button-group class="toolbar-section">
-        <el-button :type="creating ? 'primary' : 'default'" :disabled="!currentImage || mode !== 'edit'" @click="creating = !creating">
-          生成文字
-        </el-button>
-        <el-button :disabled="!selectedRegion || mode !== 'edit'" @click="deleteSelected">删除</el-button>
-        <el-button :disabled="!currentImage" @click="reloadImage">重置视图</el-button>
-      </el-button-group>
-
-      <div class="toolbar-section model-toolbar">
-        <el-segmented v-model="modelMode" :options="modelModeOptions" />
-        <el-button-group v-if="modelMode === 'ai'">
-          <el-button :disabled="!currentImage || mode !== 'edit'" :loading="ocrRefreshing" @click="refreshOcr">
-            重新识别
-          </el-button>
-        </el-button-group>
-        <el-button-group v-else>
-          <el-button :disabled="!currentImage || mode !== 'edit'" :loading="importingRegions" @click="openImportDialog">
-            导入 JSON
-          </el-button>
-          <el-button :disabled="!currentImage" @click="exportRegionsJson">
-            导出 JSON
-          </el-button>
-        </el-button-group>
-      </div>
-
-      <el-button type="success" :disabled="!currentImage || mode !== 'edit'" :loading="saving" @click="saveRegions">
-        保存全部
-      </el-button>
-    </footer>
+    <ToolBar
+      v-model:mode="mode"
+      v-model:creating="creating"
+      :has-image="!!currentImage"
+      :has-book="!!currentBook"
+      :page-count="bookPages.length"
+      :model-mode="modelMode"
+      :ocr-refreshing="ocrRefreshing"
+      :importing-regions="importingRegions"
+      :saving="saving"
+      @reload="reloadImage"
+      @refresh-ocr="refreshOcr"
+      @open-import="openImportDialog"
+      @export-json="exportRegionsJson"
+      @delete-page="deleteCurrentPage"
+      @save="saveRegions"
+    />
 
     <audio ref="audioRef" class="reader-audio" preload="none" playsinline />
   </main>
 </template>
 
 <script setup lang="ts">
-import { Check, Close, CopyDocument, Delete, Expand, FullScreen, Microphone } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, Close, FullScreen, Plus } from '@element-plus/icons-vue';
 import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-
-type ReaderImage = {
-  id: number;
-  url: string;
-  originalName: string;
-  width: number;
-  height: number;
-};
-
-type TextRegion = {
-  id?: number;
-  localId: string;
-  text: string;
-  xPercent: number;
-  yPercent: number;
-  widthPercent: number;
-  heightPercent: number;
-  iconXPercent?: number | null;
-  iconYPercent?: number | null;
-  confirmed?: boolean;
-  localIconReady?: boolean;
-};
-
-type SaveRecord = {
-  id: number;
-  imageId: number;
-  imageName: string;
-  regionCount: number;
-  createdAt: string;
-};
+import type { ReaderImage, TextRegion, SaveRecord, Book, BookPage } from './types';
+import AppHeader from './components/AppHeader.vue';
+import NavigationControls from './components/NavigationControls.vue';
+import StageArea from './components/StageArea.vue';
+import RegionMarker from './components/RegionMarker.vue';
+import HistoryDrawer from './components/HistoryDrawer.vue';
+import ImportDialog from './components/ImportDialog.vue';
+import CreateBookDialog from './components/CreateBookDialog.vue';
+import ImageCanvas from './components/ImageCanvas.vue';
+import ToolBar from './components/ToolBar.vue';
+import {
+  clamp,
+  roundPercent,
+  safeFileStem,
+  normalizeRegion,
+  readImageDimensions,
+  buildManualOcrPrompt,
+  copyTextToClipboard,
+  parseImportedRegions,
+  formatOcrError
+} from './utils/helpers';
 
 const mode = ref<'edit' | 'read'>('edit');
 const modeOptions = [
   { label: '编辑', value: 'edit' },
   { label: '阅读', value: 'read' }
 ];
-const modelMode = ref<'ai' | 'manual'>('ai');
-const modelModeOptions = [
-  { label: 'AI', value: 'ai' },
-  { label: '非AI', value: 'manual' }
-];
+const modelMode = ref<'ai' | 'manual'>('manual');
 const isFullscreen = ref(false);
 const currentImage = ref<ReaderImage | null>(null);
 const regions = ref<TextRegion[]>([]);
 const saveRecords = ref<SaveRecord[]>([]);
+const currentBook = ref<Book | null>(null);
+const bookPages = ref<BookPage[]>([]);
+const currentPageIndex = ref(0);
 const selectedLocalId = ref<string | null>(null);
 const historyVisible = ref(false);
+const historyTab = ref<'books' | 'records'>('records');
+const historyTabOptions = [
+  { label: '单图', value: 'records' },
+  { label: '书本', value: 'books' }
+];
+const books = ref<Book[]>([]);
 const creating = ref(false);
 const saving = ref(false);
 const ocrRefreshing = ref(false);
@@ -271,9 +147,14 @@ const uploading = ref(false);
 const importingRegions = ref(false);
 const importDialogVisible = ref(false);
 const importJsonText = ref('');
+const createBookDialogVisible = ref(false);
+const newBookName = ref('');
+const bookUploadFiles = ref<any[]>([]);
+const creatingBook = ref(false);
 const manualImportMode = ref(false);
-const imageFrameRef = ref<HTMLDivElement | null>(null);
-const imageRef = ref<HTMLImageElement | null>(null);
+const stageAreaRef = ref<InstanceType<typeof StageArea> | null>(null);
+const imageFrameRef = computed(() => stageAreaRef.value?.imageFrameRef || null);
+const imageRef = computed(() => stageAreaRef.value?.imageRef || null);
 const audioRef = ref<HTMLAudioElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
 const editingLocalId = ref<string | null>(null);
@@ -295,6 +176,23 @@ const dragging = ref<{
 const suppressNextRegionClick = ref(false);
 
 const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
+
+const regionStyles = computed(() => {
+  const styles: Record<string, Record<string, string>> = {};
+  regions.value.forEach(region => {
+    styles[region.localId] = regionStyle(region);
+  });
+  return styles;
+});
+
+const iconFlags = computed(() => {
+  const flags: Record<string, boolean> = {};
+  regions.value.forEach(region => {
+    flags[region.localId] = isIconRegion(region);
+  });
+  return flags;
+});
+
 const tips = computed(() => {
   if (!currentImage.value) {
     return ['上传图片后自动识别文字。', '点击右上角历史按钮可打开保存记录。'];
@@ -342,21 +240,46 @@ async function uploadImage(options: { file: File }) {
       return;
     }
     const data = await response.json();
-    currentImage.value = data.image;
-    regions.value = data.regions.map(normalizeRegion);
-    selectedLocalId.value = null;
-    editingLocalId.value = null;
-    manualImportMode.value = Boolean(data.ocrError || (data.ocrEnabled && regions.value.length === 0));
-    modelMode.value = manualImportMode.value ? 'manual' : 'ai';
-    mode.value = 'edit';
-    if (data.cached && regions.value.length > 0) {
-      ElMessage.success('已从缓存加载这张图片和标注。');
-    } else if (data.cached) {
-      ElMessage.info('这张图片已存在，当前没有标注。');
-    } else if (data.ocrEnabled && regions.value.length === 0) {
-      ElMessage.warning(data.ocrError ? 'OCR 暂不可用，可切到“非AI”导入 JSON' : '已上传图片，但暂未识别到文字');
-    } else if (data.ocrEnabled && regions.value.length > 0) {
-      ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击“保存全部”。');
+
+    // 如果在书本模式下，添加到书本
+    if (currentBook.value) {
+      const pageResponse = await fetch(`/api/books/${currentBook.value.id}/pages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: data.image.id })
+      });
+      if (!pageResponse.ok) {
+        ElMessage.error('添加页面失败');
+        return;
+      }
+
+      // 重新加载书本数据
+      const bookResponse = await fetch(`/api/books/${currentBook.value.id}`);
+      if (bookResponse.ok) {
+        const bookData = await bookResponse.json();
+        bookPages.value = bookData.pages;
+        currentPageIndex.value = bookPages.value.length - 1; // 跳到新添加的页面
+        loadCurrentPage();
+        ElMessage.success('新页面添加成功');
+      }
+    } else {
+      // 单图模式
+      currentImage.value = data.image;
+      regions.value = data.regions.map(normalizeRegion);
+      selectedLocalId.value = null;
+      editingLocalId.value = null;
+      manualImportMode.value = Boolean(data.ocrError || (data.ocrEnabled && regions.value.length === 0));
+      modelMode.value = manualImportMode.value ? 'manual' : 'ai';
+      mode.value = 'edit';
+      if (data.cached && regions.value.length > 0) {
+        ElMessage.success('已从缓存加载这张图片和标注。');
+      } else if (data.cached) {
+        ElMessage.info('这张图片已存在，当前没有标注。');
+      } else if (data.ocrEnabled && regions.value.length === 0) {
+        ElMessage.warning(data.ocrError ? 'OCR 暂不可用，可切到”非AI”导入 JSON' : '已上传图片，但暂未识别到文字');
+      } else if (data.ocrEnabled && regions.value.length > 0) {
+        ElMessage.success('识别完成，请检查喇叭位置，确认无误后点击”保存全部”。');
+      }
     }
     await nextTick();
     updateFrameSize();
@@ -382,7 +305,7 @@ async function reloadImage() {
   selectedLocalId.value = null;
   editingLocalId.value = null;
   manualImportMode.value = false;
-  modelMode.value = 'ai';
+  // 保持当前 modelMode，不强制修改
   await nextTick();
   updateFrameSize();
 }
@@ -394,9 +317,106 @@ async function loadSaveRecords() {
   saveRecords.value = data.records;
 }
 
+async function loadBooks() {
+  const response = await fetch('/api/books');
+  if (!response.ok) return;
+  const data = await response.json();
+  books.value = data.books;
+}
+
 async function openHistory() {
   await loadSaveRecords();
+  await loadBooks();
   historyVisible.value = true;
+}
+
+async function loadBook(book: Book) {
+  const response = await fetch(`/api/books/${book.id}`);
+  if (!response.ok) {
+    ElMessage.error('加载书本失败');
+    return;
+  }
+  const data = await response.json();
+  currentBook.value = data.book;
+  bookPages.value = data.pages;
+  currentPageIndex.value = 0;
+
+  historyVisible.value = false;
+
+  if (bookPages.value.length === 0) {
+    // 空书本直接进入编辑模式
+    currentImage.value = null;
+    regions.value = [];
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    mode.value = 'edit';
+    ElMessage.info('请上传图片添加新页');
+  } else {
+    // 有页面直接进入编辑模式，显示第1页
+    loadCurrentPage();
+    mode.value = 'edit';
+  }
+}
+
+async function deleteBook(book: Book) {
+  const response = await fetch(`/api/books/${book.id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    ElMessage.error('删除书本失败');
+    return;
+  }
+  books.value = books.value.filter((item) => item.id !== book.id);
+}
+
+async function deleteCurrentPage() {
+  if (!currentBook.value || !currentImage.value) return;
+
+  const currentPage = bookPages.value[currentPageIndex.value];
+  if (!currentPage) return;
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除第 ${currentPageIndex.value + 1} 页吗？`,
+      '删除页面',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    );
+  } catch {
+    return;
+  }
+
+  const response = await fetch(`/api/books/${currentBook.value.id}/pages/${currentPage.id}`, {
+    method: 'DELETE'
+  });
+
+  if (!response.ok) {
+    ElMessage.error('删除页面失败');
+    return;
+  }
+
+  // 从列表中移除
+  bookPages.value.splice(currentPageIndex.value, 1);
+
+  // 处理删除后的跳转
+  if (bookPages.value.length === 0) {
+    // 书本变空
+    currentImage.value = null;
+    regions.value = [];
+    selectedLocalId.value = null;
+    editingLocalId.value = null;
+    ElMessage.success('页面已删除，书本现在为空');
+  } else if (currentPageIndex.value >= bookPages.value.length) {
+    // 删除的是最后一页，跳到前一页
+    currentPageIndex.value = bookPages.value.length - 1;
+    loadCurrentPage();
+    ElMessage.success('页面已删除');
+  } else {
+    // 删除中间页，当前索引不变（显示下一页）
+    loadCurrentPage();
+    ElMessage.success('页面已删除');
+  }
 }
 
 async function loadHistoryRecord(record: SaveRecord) {
@@ -406,13 +426,16 @@ async function loadHistoryRecord(record: SaveRecord) {
     return;
   }
   const data = await response.json();
+  currentBook.value = null;
+  bookPages.value = [];
+  currentPageIndex.value = 0;
   currentImage.value = data.image;
   regions.value = data.regions.map(normalizeRegion);
   selectedLocalId.value = null;
   editingLocalId.value = null;
   creating.value = false;
   manualImportMode.value = false;
-  modelMode.value = 'ai';
+  // 保持默认的 manual 模式，不强制设置为 ai
   mode.value = 'read';
   historyVisible.value = false;
   await nextTick();
@@ -464,7 +487,7 @@ async function refreshOcr() {
       if (data?.regions) regions.value = data.regions.map(normalizeRegion);
       manualImportMode.value = true;
       modelMode.value = 'manual';
-      throw new Error(formatOcrError(data));
+      throw new Error(formatOcrError(data, regions.value.length));
     }
     const data = await response.json();
     regions.value = data.regions.map(normalizeRegion);
@@ -501,65 +524,6 @@ async function copyOcrPrompt() {
   } catch {
     showManualPromptFallback(prompt);
   }
-}
-
-function buildManualOcrPrompt(image: ReaderImage) {
-  return [
-    'You are an OCR engine for a picture reading app.',
-    'Detect all readable text in the attached image.',
-    `Original image size is ${image.width}x${image.height}.`,
-    'Return only valid JSON with a regions array and no markdown.',
-    'Each region must include text, x, y, width, height.',
-    'Coordinates must be pixel coordinates relative to the original image.',
-    'Group all lines that form one sentence, question, caption, label, or speech bubble into one region.',
-    'For multi-line text inside the same speech bubble, return one region with the full text in reading order.',
-    'Treat visible grid cells, table cells, comic panels, worksheet boxes, cards, and bordered compartments as hard boundaries.',
-    'Never merge text across a cell border, panel border, box border, or clear compartment gap, even when the text seems semantically related.',
-    'If an image is arranged as many boxed cells, return one or more regions per cell, but do not create one region spanning multiple cells.',
-    'For dialogue or role-play text, split by speaker turn: each A:, B:, C:, Teacher:, Student:, or similar speaker line is its own region.',
-    'Keep a speaker turn together with its translation. For example "A: Don’t play with your knife/fork. 不要玩刀叉。" is one region, and "B: Don’t point chopsticks at others. 不要把筷子指向别人。" is another region.',
-    'Never merge two different speaker turns into one region, even when they are inside the same table cell or speech bubble.',
-    'Use spaces between joined lines unless punctuation already separates them.',
-    'If exact boxes are hard, estimate one tight box around the whole phrase or sentence.',
-    'Do not include decorative watermarks or irrelevant background text.',
-    'Return JSON exactly like {"regions":[{"text":"Culturally interested.","x":10,"y":20,"width":120,"height":80}]}.',
-    'Output JSON format only. Do not include explanations, markdown fences, or any text outside the JSON object.'
-  ].join('\n');
-}
-
-async function copyTextToClipboard(text: string) {
-  if (copyTextWithSelection(text)) return;
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  throw new Error('copy failed');
-}
-
-function copyTextWithSelection(text: string) {
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.top = '0';
-  textarea.style.left = '0';
-  textarea.style.width = '1px';
-  textarea.style.height = '1px';
-  textarea.style.opacity = '0';
-  textarea.style.pointerEvents = 'none';
-  textarea.setAttribute('readonly', '');
-  document.body.appendChild(textarea);
-  const selection = document.getSelection();
-  const previousRange = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
-  textarea.focus({ preventScroll: true });
-  textarea.select();
-  textarea.setSelectionRange(0, textarea.value.length);
-  const copied = document.execCommand('copy');
-  textarea.remove();
-  if (previousRange && selection) {
-    selection.removeAllRanges();
-    selection.addRange(previousRange);
-  }
-  return copied;
 }
 
 async function showManualPromptFallback(prompt: string) {
@@ -648,42 +612,6 @@ function exportRegionsJson() {
   link.remove();
   URL.revokeObjectURL(url);
   ElMessage.success(`已导出 ${payload.regions.length} 个标注`);
-}
-
-function parseImportedRegions(text: string): { regions: any[] } | null {
-  const normalizedText = normalizeImportedJsonText(text);
-  try {
-    const parsed = JSON.parse(normalizedText);
-    return Array.isArray(parsed?.regions) ? parsed : null;
-  } catch {
-    const match = normalizedText.match(/\{[\s\S]*"regions"[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      const parsed = JSON.parse(match[0]);
-      return Array.isArray(parsed?.regions) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-}
-
-function normalizeImportedJsonText(text: string) {
-  return text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'");
-}
-
-function formatOcrError(data: any) {
-  const error = data?.error ? String(data.error) : 'ocr failed';
-  const count = Array.isArray(data?.regions) ? data.regions.length : regions.value.length;
-  if (error === 'ocr returned no regions') return `重新识别失败：未识别到文字，已保留 ${count} 个标注`;
-  if (error === 'ocr returned empty content') return `重新识别失败：OCR 没有返回内容，已保留 ${count} 个标注`;
-  if (error === 'ocr returned no parsable regions') return `重新识别失败：OCR 返回格式不对，已保留 ${count} 个标注`;
-  if (error.startsWith('ocr request failed')) return `重新识别失败：${error}，已保留 ${count} 个标注`;
-  return `重新识别失败：${error}，已保留 ${count} 个标注`;
 }
 
 function handleStageClick(event: MouseEvent) {
@@ -786,6 +714,12 @@ async function saveRegions() {
       saved.push(normalizeRegion({ ...data.region, confirmed: true }));
     }
     regions.value = saved;
+
+    // 如果在书本模式，更新 bookPages 中的当前页数据
+    if (currentBook.value && bookPages.value[currentPageIndex.value]) {
+      bookPages.value[currentPageIndex.value].regions = saved;
+    }
+
     await createSaveRecord();
     await loadSaveRecords();
     selectedLocalId.value = null;
@@ -822,6 +756,11 @@ async function deleteRegion(region: TextRegion) {
   regions.value = regions.value.filter((item) => item.localId !== region.localId);
   selectedLocalId.value = null;
   editingLocalId.value = null;
+
+  // 如果在书本模式，更新 bookPages 中的当前页数据
+  if (currentBook.value && bookPages.value[currentPageIndex.value]) {
+    bookPages.value[currentPageIndex.value].regions = [...regions.value];
+  }
 }
 
 function playRegion(region: TextRegion) {
@@ -969,23 +908,6 @@ function regionStyle(region: TextRegion) {
   };
 }
 
-function normalizeRegion(region: any): TextRegion {
-  const confirmed = Boolean(region.confirmed);
-  return {
-    id: region.id,
-    localId: String(region.id ?? crypto.randomUUID()),
-    text: region.text ?? '',
-    xPercent: Number(region.xPercent),
-    yPercent: Number(region.yPercent),
-    widthPercent: Number(region.widthPercent ?? 18),
-    heightPercent: Number(region.heightPercent ?? 8),
-    iconXPercent: region.iconXPercent ?? null,
-    iconYPercent: region.iconYPercent ?? null,
-    confirmed,
-    localIconReady: !region.id && Boolean(region.text)
-  };
-}
-
 function iconXPercent(region: TextRegion) {
   if (typeof region.iconXPercent === 'number') return region.iconXPercent;
   return iconXPercentFromBox(region);
@@ -1014,35 +936,6 @@ function iconPixelHeightPercent() {
   return (speakerIconSize / frameSize.value.height) * 100;
 }
 
-function readImageDimensions(file: File) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth || 1, height: img.naturalHeight || 1 });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('image load failed'));
-    };
-    img.src = url;
-  });
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function roundPercent(value: number) {
-  return Math.round(value * 1000) / 1000;
-}
-
-function safeFileStem(name: string) {
-  const stem = name.replace(/\.[^.]+$/, '').trim() || 'pic-reader';
-  return stem.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
-}
-
 function formatDate(value: string) {
   return new Date(value).toLocaleString('zh-CN', {
     month: '2-digit',
@@ -1050,6 +943,102 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit'
   });
+}
+
+function openCreateBookDialog() {
+  newBookName.value = '';
+  bookUploadFiles.value = [];
+  createBookDialogVisible.value = true;
+}
+
+async function createBook() {
+  const name = newBookName.value.trim();
+  if (!name) {
+    ElMessage.warning('请输入书本名称');
+    return;
+  }
+
+  creatingBook.value = true;
+
+  // 如果有上传图片，显示加载提示
+  if (bookUploadFiles.value.length > 0) {
+    uploadLoading.value = ElLoading.service({
+      lock: true,
+      text: `正在创建书本，上传 ${bookUploadFiles.value.length} 张图片...`,
+      background: 'rgba(243, 245, 248, 0.82)'
+    });
+  }
+
+  try {
+    // 创建书本
+    const bookResponse = await fetch('/api/books', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (!bookResponse.ok) throw new Error('创建书本失败');
+    const bookData = await bookResponse.json();
+    const book = bookData.book;
+
+    // 如果有图片，上传所有图片并添加到书本
+    if (bookUploadFiles.value.length > 0) {
+      for (let i = 0; i < bookUploadFiles.value.length; i++) {
+        const file = bookUploadFiles.value[i].raw;
+        const dimensions = await readImageDimensions(file);
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('width', String(dimensions.width));
+        formData.append('height', String(dimensions.height));
+
+        const imageResponse = await fetch('/api/images', { method: 'POST', body: formData });
+        if (!imageResponse.ok) throw new Error(`上传第 ${i + 1} 张图片失败`);
+        const imageData = await imageResponse.json();
+
+        const pageResponse = await fetch(`/api/books/${book.id}/pages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageId: imageData.image.id })
+        });
+        if (!pageResponse.ok) throw new Error(`添加第 ${i + 1} 页失败`);
+      }
+      ElMessage.success(`书本「${name}」创建成功，共 ${bookUploadFiles.value.length} 页`);
+    } else {
+      ElMessage.success(`空书本「${name}」创建成功`);
+    }
+
+    createBookDialogVisible.value = false;
+
+    // 重新加载书本列表
+    await loadBooks();
+
+    // 重新获取完整书本数据（包含所有页面）
+    const fullBookResponse = await fetch(`/api/books/${book.id}`);
+    if (fullBookResponse.ok) {
+      const fullBookData = await fullBookResponse.json();
+      currentBook.value = fullBookData.book;
+      bookPages.value = fullBookData.pages;
+      currentPageIndex.value = 0;
+
+      if (bookPages.value.length === 0) {
+        // 空书本直接进入编辑模式
+        currentImage.value = null;
+        regions.value = [];
+        selectedLocalId.value = null;
+        editingLocalId.value = null;
+        mode.value = 'edit';
+      } else {
+        // 有页面直接进入编辑模式，显示第1页
+        loadCurrentPage();
+        mode.value = 'edit';
+      }
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '创建书本失败');
+  } finally {
+    creatingBook.value = false;
+    uploadLoading.value?.close();
+    uploadLoading.value = null;
+  }
 }
 
 function enterFullscreen() {
@@ -1065,6 +1054,92 @@ function exitFullscreen() {
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && isFullscreen.value) {
     exitFullscreen();
+    return;
   }
+
+  if (currentBook.value && bookPages.value.length > 1 && !editingLocalId.value) {
+    if (event.key === 'ArrowLeft' && currentPageIndex.value > 0) {
+      event.preventDefault();
+      previousPage();
+    } else if (event.key === 'ArrowRight' && currentPageIndex.value < bookPages.value.length - 1) {
+      event.preventDefault();
+      nextPage();
+    }
+  }
+}
+
+function previousPage() {
+  if (currentPageIndex.value > 0) {
+    if (hasUnsavedChanges()) {
+      ElMessageBox.confirm('当前页面有未保存的修改，切换页面后将丢失，确定继续吗？', '提示', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        currentPageIndex.value--;
+        loadCurrentPage();
+      }).catch(() => {});
+    } else {
+      currentPageIndex.value--;
+      loadCurrentPage();
+    }
+  }
+}
+
+function nextPage() {
+  if (currentPageIndex.value < bookPages.value.length - 1) {
+    if (hasUnsavedChanges()) {
+      ElMessageBox.confirm('当前页面有未保存的修改，切换页面后将丢失，确定继续吗？', '提示', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        currentPageIndex.value++;
+        loadCurrentPage();
+      }).catch(() => {});
+    } else {
+      currentPageIndex.value++;
+      loadCurrentPage();
+    }
+  }
+}
+
+function hasUnsavedChanges() {
+  if (!currentImage.value || !currentBook.value) return false;
+  const currentPage = bookPages.value[currentPageIndex.value];
+  if (!currentPage) return false;
+
+  // 检查区域数量是否变化
+  if (regions.value.length !== currentPage.regions.length) return true;
+
+  // 检查是否有新建的区域（没有 id）
+  if (regions.value.some(r => !r.id)) return true;
+
+  // 检查现有区域是否被修改
+  for (const region of regions.value) {
+    const original = currentPage.regions.find(r => r.id === region.id);
+    if (!original) return true;
+
+    if (region.text !== original.text ||
+        Math.abs(region.xPercent - original.xPercent) > 0.01 ||
+        Math.abs(region.yPercent - original.yPercent) > 0.01 ||
+        Math.abs(region.widthPercent - original.widthPercent) > 0.01 ||
+        Math.abs(region.heightPercent - original.heightPercent) > 0.01) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function loadCurrentPage() {
+  const page = bookPages.value[currentPageIndex.value];
+  if (!page) return;
+
+  currentImage.value = page.image;
+  regions.value = page.regions.map(normalizeRegion);
+  selectedLocalId.value = null;
+  editingLocalId.value = null;
+  nextTick(() => updateFrameSize());
 }
 </script>

@@ -3,6 +3,7 @@ import { ElButton, ElButtonGroup } from 'element-plus/es/components/button/index
 import { ElCarousel, ElCarouselItem } from 'element-plus/es/components/carousel/index.mjs';
 import ElDialog from 'element-plus/es/components/dialog/index.mjs';
 import ElDrawer from 'element-plus/es/components/drawer/index.mjs';
+import { ElForm, ElFormItem } from 'element-plus/es/components/form/index.mjs';
 import ElIcon from 'element-plus/es/components/icon/index.mjs';
 import ElInput from 'element-plus/es/components/input/index.mjs';
 import ElSegmented from 'element-plus/es/components/segmented/index.mjs';
@@ -19,6 +20,8 @@ const components = [
   ElCarouselItem,
   ElDialog,
   ElDrawer,
+  ElForm,
+  ElFormItem,
   ElIcon,
   ElInput,
   ElSegmented,

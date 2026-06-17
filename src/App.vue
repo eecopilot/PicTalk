@@ -37,111 +37,38 @@
       @create="createBook"
     />
 
-    <button v-if="isFullscreen" class="exit-fullscreen" @click="exitFullscreen">
-      <el-icon><Close /></el-icon>
-    </button>
+    <NavigationControls
+      :is-fullscreen="isFullscreen"
+      :has-image="!!currentImage"
+      :has-book="!!currentBook"
+      :mode="mode"
+      :current-page-index="currentPageIndex"
+      :page-count="bookPages.length"
+      @exit-fullscreen="exitFullscreen"
+      @enter-fullscreen="enterFullscreen"
+      @previous-page="previousPage"
+      @next-page="nextPage"
+    />
 
-    <button
-      v-if="!isFullscreen && currentImage && mode === 'read'"
-      class="enter-fullscreen"
-      @click="enterFullscreen"
-    >
-      <el-icon><FullScreen /></el-icon>
-    </button>
-
-    <button
-      v-if="currentBook && bookPages.length > 1 && currentPageIndex > 0"
-      class="prev-page"
-      @click="previousPage"
-    >
-      <el-icon><ArrowLeft /></el-icon>
-    </button>
-
-    <button
-      v-if="currentBook && bookPages.length > 1 && currentPageIndex < bookPages.length - 1"
-      class="next-page"
-      @click="nextPage"
-    >
-      <el-icon><ArrowRight /></el-icon>
-    </button>
-
-    <div v-if="currentBook && bookPages.length > 1" class="page-indicator">
-      {{ currentPageIndex + 1 }} / {{ bookPages.length }}
-    </div>
-
-    <section class="stage" @click="handleStageClick">
-      <div v-if="!currentImage" class="empty-state">
-        <h2>上传一张图片开始点读标注</h2>
-        <p>图片会居中显示，底部工具栏用于切换编辑和阅读。</p>
-      </div>
-
-      <div
-        v-else
-        ref="imageFrameRef"
-        class="image-frame"
-        :style="{ width: frameSize.width + 'px', height: frameSize.height + 'px' }"
-      >
-        <img
-          ref="imageRef"
-          :src="currentImage.url"
-          :alt="currentImage.originalName"
-          @load="updateFrameSize"
-        />
-
-        <div
-          v-for="region in regions"
-          :key="region.localId"
-          role="button"
-          tabindex="0"
-          class="region-marker"
-          :class="{
-            selected: region.localId === selectedLocalId || region.localId === playingLocalId,
-            reading: mode === 'read',
-            editable: mode === 'edit',
-            icon: isIconRegion(region),
-            playing: region.localId === playingLocalId,
-            persisted: isPersistedRegion(region),
-            editing: isEditingRegion(region)
-          }"
-          :style="regionStyle(region)"
-          @click.stop="handleRegionClick(region)"
-          @pointerdown.stop="startDrag($event, region)"
-        >
-          <el-input
-            v-if="isEditingRegion(region)"
-            v-model="region.text"
-            class="region-input"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 4 }"
-            placeholder="输入文字"
-            @click.stop
-            @pointerdown.stop
-            @focusin="selectedLocalId = region.localId"
-          />
-          <button
-            v-if="isEditingRegion(region)"
-            class="inline-save"
-            title="收起为喇叭"
-            @click.stop="collapseRegion(region)"
-            @pointerdown.stop
-          >
-            <el-icon><Check /></el-icon>
-          </button>
-          <button
-            v-if="isEditingRegion(region)"
-            class="inline-delete"
-            title="删除该标注"
-            @click.stop="deleteRegion(region)"
-            @pointerdown.stop
-          >
-            <el-icon><Delete /></el-icon>
-          </button>
-          <span v-else class="speaker-hotspot" :title="region.text || '点击播放'">
-            <el-icon><Microphone /></el-icon>
-          </span>
-        </div>
-      </div>
-    </section>
+    <StageArea
+      ref="stageAreaRef"
+      :current-image="currentImage"
+      :regions="regions"
+      :mode="mode"
+      :selected-local-id="selectedLocalId"
+      :editing-local-id="editingLocalId"
+      :playing-local-id="playingLocalId"
+      :frame-size="frameSize"
+      :region-styles="regionStyles"
+      :icon-flags="iconFlags"
+      @stage-click="handleStageClick"
+      @image-load="updateFrameSize"
+      @region-click="handleRegionClick"
+      @region-pointerdown="startDrag"
+      @region-select="localId => selectedLocalId = localId"
+      @collapse-region="collapseRegion"
+      @delete-region="deleteRegion"
+    />
 
     <ToolBar
       v-model:mode="mode"
@@ -166,12 +93,14 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, Close, FullScreen, Microphone, Plus } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, Close, FullScreen, Plus } from '@element-plus/icons-vue';
 import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ReaderImage, TextRegion, SaveRecord, Book, BookPage } from './types';
 import AppHeader from './components/AppHeader.vue';
+import NavigationControls from './components/NavigationControls.vue';
+import StageArea from './components/StageArea.vue';
 import RegionMarker from './components/RegionMarker.vue';
 import HistoryDrawer from './components/HistoryDrawer.vue';
 import ImportDialog from './components/ImportDialog.vue';
@@ -223,8 +152,9 @@ const newBookName = ref('');
 const bookUploadFiles = ref<any[]>([]);
 const creatingBook = ref(false);
 const manualImportMode = ref(false);
-const imageFrameRef = ref<HTMLDivElement | null>(null);
-const imageRef = ref<HTMLImageElement | null>(null);
+const stageAreaRef = ref<InstanceType<typeof StageArea> | null>(null);
+const imageFrameRef = computed(() => stageAreaRef.value?.imageFrameRef || null);
+const imageRef = computed(() => stageAreaRef.value?.imageRef || null);
 const audioRef = ref<HTMLAudioElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
 const editingLocalId = ref<string | null>(null);
@@ -246,6 +176,23 @@ const dragging = ref<{
 const suppressNextRegionClick = ref(false);
 
 const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
+
+const regionStyles = computed(() => {
+  const styles: Record<string, Record<string, string>> = {};
+  regions.value.forEach(region => {
+    styles[region.localId] = regionStyle(region);
+  });
+  return styles;
+});
+
+const iconFlags = computed(() => {
+  const flags: Record<string, boolean> = {};
+  regions.value.forEach(region => {
+    flags[region.localId] = isIconRegion(region);
+  });
+  return flags;
+});
+
 const tips = computed(() => {
   if (!currentImage.value) {
     return ['上传图片后自动识别文字。', '点击右上角历史按钮可打开保存记录。'];

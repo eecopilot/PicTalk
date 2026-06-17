@@ -47,9 +47,9 @@ COPY --from=build --chown=appuser:appuser /app/node_modules ./node_modules
 # 后端和前端的编译产物现在都在 dist 里面了
 COPY --from=build --chown=appuser:appuser /app/dist ./dist
 COPY --from=build --chown=appuser:appuser /app/public ./public
+COPY --chown=root:root docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-# 切换到非 root 用户
-USER appuser
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8787
 
@@ -57,4 +57,5 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://127.0.0.1:' + (process.env.PORT || 8787) + '/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]

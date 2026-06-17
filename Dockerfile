@@ -55,6 +55,6 @@ EXPOSE 8787
 
 # 健康检查（已修复 Node 22+ 的 localhost IPv6 解析问题）
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://127.0.0.1:8787/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
+    CMD node -e "require('http').get('http://127.0.0.1:' + (process.env.PORT || 8787) + '/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" || exit 1
 
 CMD ["npm", "run", "start"]

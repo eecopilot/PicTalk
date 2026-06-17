@@ -893,7 +893,7 @@ function updateFrameSize() {
   frameSize.value = { width, height };
 }
 
-function regionStyle(region: TextRegion) {
+function regionStyle(region: TextRegion): Record<string, string> {
   if (isIconRegion(region)) {
     return {
       left: `${clamp(iconXPercent(region), 0, 100 - iconPixelWidthPercent())}%`,

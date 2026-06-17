@@ -1,5 +1,5 @@
 <template>
-  <section class="stage" @click="$emit('stage-click')">
+  <section class="stage" @click="$emit('stage-click', $event)">
     <div v-if="!currentImage" class="empty-state">
       <h2>上传一张图片开始点读标注</h2>
       <p>图片会居中显示，底部工具栏用于切换编辑和阅读。</p>
@@ -56,7 +56,7 @@ defineProps<{
 }>();
 
 defineEmits<{
-  'stage-click': [];
+  'stage-click': [event: MouseEvent];
   'image-load': [];
   'region-click': [region: TextRegion];
   'region-pointerdown': [event: PointerEvent, region: TextRegion];

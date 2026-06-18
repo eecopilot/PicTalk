@@ -1,4 +1,4 @@
-import type { TextRegion, ReaderImage } from '../types';
+import type { AudioSource, TextRegion, ReaderImage } from '../types';
 
 export function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -31,10 +31,12 @@ export function createLocalId() {
 
 export function normalizeRegion(region: any): TextRegion {
   const confirmed = Boolean(region.confirmed);
+  const audioSource: AudioSource = region.audioSource === 'google' ? 'google' : 'tts';
   return {
     id: region.id,
     localId: String(region.id ?? createLocalId()),
     text: region.text ?? '',
+    audioSource,
     xPercent: Number(region.xPercent),
     yPercent: Number(region.yPercent),
     widthPercent: Number(region.widthPercent ?? 18),

@@ -29,6 +29,7 @@ type RegionRow = {
   height_percent: number;
   icon_x_percent: number | null;
   icon_y_percent: number | null;
+  audio_source: 'tts' | 'google';
   confirmed: number;
   created_at: string;
   updated_at: string;
@@ -58,6 +59,7 @@ type BookPageRow = {
 
 type OcrRegion = {
   text: string;
+  audioSource?: 'tts' | 'google';
   xPercent: number;
   yPercent: number;
   widthPercent: number;
@@ -112,6 +114,7 @@ db.exec(`
     height_percent REAL NOT NULL DEFAULT 8,
     icon_x_percent REAL,
     icon_y_percent REAL,
+    audio_source TEXT NOT NULL DEFAULT 'tts',
     confirmed INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -369,9 +372,9 @@ app.post('/api/images/:id/text-regions', async (c) => {
   if (validation.error) return c.json({ error: validation.error }, 400);
 
   const result = db.prepare(`
-    INSERT INTO text_regions (image_id, text, x_percent, y_percent, width_percent, height_percent, icon_x_percent, icon_y_percent, confirmed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-  `).run(imageId, validation.text, validation.xPercent, validation.yPercent, validation.widthPercent, validation.heightPercent, validation.iconXPercent, validation.iconYPercent);
+    INSERT INTO text_regions (image_id, text, x_percent, y_percent, width_percent, height_percent, icon_x_percent, icon_y_percent, audio_source, confirmed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `).run(imageId, validation.text, validation.xPercent, validation.yPercent, validation.widthPercent, validation.heightPercent, validation.iconXPercent, validation.iconYPercent, validation.audioSource);
 
   return c.json({ region: getRegion(Number(result.lastInsertRowid)) }, 201);
 });
@@ -386,9 +389,9 @@ app.put('/api/text-regions/:id', async (c) => {
 
   db.prepare(`
     UPDATE text_regions
-    SET text = ?, x_percent = ?, y_percent = ?, width_percent = ?, height_percent = ?, icon_x_percent = ?, icon_y_percent = ?, confirmed = 1, updated_at = CURRENT_TIMESTAMP
+    SET text = ?, x_percent = ?, y_percent = ?, width_percent = ?, height_percent = ?, icon_x_percent = ?, icon_y_percent = ?, audio_source = ?, confirmed = 1, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(validation.text, validation.xPercent, validation.yPercent, validation.widthPercent, validation.heightPercent, validation.iconXPercent, validation.iconYPercent, id);
+  `).run(validation.text, validation.xPercent, validation.yPercent, validation.widthPercent, validation.heightPercent, validation.iconXPercent, validation.iconYPercent, validation.audioSource, id);
 
   return c.json({ region: getRegion(id) });
 });
@@ -403,7 +406,11 @@ app.post('/api/text-regions/:id/audio', (c) => {
   const region = getRegion(Number(c.req.param('id')));
   if (!region) return c.json({ error: 'region not found' }, 404);
 
-  return c.json({ audioUrl: buildTtsUrl(region.text).toString() });
+  const variant = normalizeGoogleVariant(c.req.query('variant'));
+  const audioUrl = region.audioSource === 'google'
+    ? buildGooglePronunciationUrl(region.text, variant).toString()
+    : buildTtsUrl(region.text).toString();
+  return c.json({ audioUrl });
 });
 
 app.get('/api/tts', async (c) => {
@@ -449,6 +456,15 @@ app.get('/api/tts', async (c) => {
   return c.body(audio, 200, {
     ...headers,
     'Content-Length': String(audio.byteLength)
+  });
+});
+
+app.get('/api/google-pronunciation', (c) => {
+  const text = c.req.query('t')?.trim();
+  if (!text) return c.json({ error: 'text is required' }, 400);
+
+  return c.json({
+    audioUrl: buildGooglePronunciationUrl(text, normalizeGoogleVariant(c.req.query('variant'))).toString()
   });
 });
 
@@ -501,6 +517,9 @@ function migrateDatabase() {
   }
   if (!regionColumns.some((column) => column.name === 'icon_y_percent')) {
     db.prepare('ALTER TABLE text_regions ADD COLUMN icon_y_percent REAL').run();
+  }
+  if (!regionColumns.some((column) => column.name === 'audio_source')) {
+    db.prepare("ALTER TABLE text_regions ADD COLUMN audio_source TEXT NOT NULL DEFAULT 'tts'").run();
   }
 
   const rows = db.prepare('SELECT id, filename FROM images ORDER BY id').all() as { id: number; filename: string }[];
@@ -555,12 +574,20 @@ function getRegions(imageId: number) {
 
 function insertOcrRegions(imageId: number, regions: OcrRegion[]) {
   const insert = db.prepare(`
-    INSERT INTO text_regions (image_id, text, x_percent, y_percent, width_percent, height_percent, confirmed)
-    VALUES (?, ?, ?, ?, ?, ?, 0)
+    INSERT INTO text_regions (image_id, text, x_percent, y_percent, width_percent, height_percent, audio_source, confirmed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
   `);
   const ids = db.transaction((items: OcrRegion[]) =>
     items.map((region) =>
-      Number(insert.run(imageId, region.text, region.xPercent, region.yPercent, region.widthPercent, region.heightPercent).lastInsertRowid)
+      Number(insert.run(
+        imageId,
+        region.text,
+        region.xPercent,
+        region.yPercent,
+        region.widthPercent,
+        region.heightPercent,
+        region.audioSource === 'google' ? 'google' : 'tts'
+      ).lastInsertRowid)
     )
   )(regions);
   return ids.map((id) => getRegion(id)).filter((region): region is NonNullable<ReturnType<typeof getRegion>> => Boolean(region));
@@ -620,6 +647,7 @@ function mapRegion(row: RegionRow) {
     heightPercent: row.height_percent,
     iconXPercent: row.icon_x_percent,
     iconYPercent: row.icon_y_percent,
+    audioSource: row.audio_source === 'google' ? 'google' : 'tts',
     confirmed: Boolean(row.confirmed),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -924,6 +952,7 @@ function normalizeImportedRegion(region: any, imageWidth: number, imageHeight: n
     if (widthPercent <= 0 || heightPercent <= 0) return null;
     return {
       text,
+      audioSource: region.audioSource === 'google' ? 'google' : 'tts',
       xPercent: clampNumber(xPercent, 0, 98),
       yPercent: clampNumber(yPercent, 0, 98),
       widthPercent: clampNumber(widthPercent, 4, 60),
@@ -952,6 +981,7 @@ function md5(buffer: Buffer) {
 
 function validateRegionPayload(payload: any) {
   const text = String(payload.text ?? '').trim();
+  const audioSource = payload.audioSource === 'google' ? 'google' : 'tts';
   const xPercent = Number(payload.xPercent);
   const yPercent = Number(payload.yPercent);
   const widthPercent = Number(payload.widthPercent ?? 18);
@@ -965,7 +995,26 @@ function validateRegionPayload(payload: any) {
   if (xPercent < 0 || xPercent > 100 || yPercent < 0 || yPercent > 100) return { error: 'coordinates out of range' };
   if (widthPercent <= 0 || widthPercent > 100 || heightPercent <= 0 || heightPercent > 100) return { error: 'size out of range' };
   if ((iconXPercent !== null && (iconXPercent < 0 || iconXPercent > 100)) || (iconYPercent !== null && (iconYPercent < 0 || iconYPercent > 100))) return { error: 'icon coordinates out of range' };
-  return { text, xPercent, yPercent, widthPercent, heightPercent, iconXPercent, iconYPercent };
+  return { text, audioSource, xPercent, yPercent, widthPercent, heightPercent, iconXPercent, iconYPercent };
+}
+
+function normalizeGoogleVariant(value: string | undefined) {
+  return value === '2' ? 2 : 1;
+}
+
+function buildGooglePronunciationUrl(text: string, variant: 1 | 2 = 1) {
+  const word = googlePronunciationWord(text);
+  const firstTwoLetters = word.slice(0, 2);
+  return new URL(`https://ssl.gstatic.com/dictionary/static/pronunciation/2024-04-19/audio/${firstTwoLetters}/${word}_en_us_${variant}.mp3`);
+}
+
+function googlePronunciationWord(text: string) {
+  const normalized = text
+    .toLowerCase()
+    .trim()
+    .match(/[a-z]+(?:['-][a-z]+)*/)?.[0]
+    ?.replace(/[^a-z]/g, '');
+  return normalized || 'word';
 }
 
 function safeExtension(name: string) {

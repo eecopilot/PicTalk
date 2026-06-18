@@ -6,10 +6,13 @@ export type ReaderImage = {
   height: number;
 };
 
+export type AudioSource = 'tts' | 'google';
+
 export type TextRegion = {
   id?: number;
   localId: string;
   text: string;
+  audioSource: AudioSource;
   xPercent: number;
   yPercent: number;
   widthPercent: number;

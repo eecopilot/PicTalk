@@ -2,16 +2,32 @@
   <footer class="bottom-toolbar">
     <div class="toolbar-section">
       <el-segmented v-model="localMode" :options="modeOptions" @change="handleModeChange" />
+      <el-button
+        :type="pageReadingStatus === 'idle' ? 'default' : 'primary'"
+        :disabled="!hasImage || localMode !== 'read'"
+        @click="$emit('toggle-page-reading')"
+      >
+        {{ pageReadingLabel }}
+      </el-button>
     </div>
 
     <div class="toolbar-section" style="display: inline-flex;">
       <el-tooltip content="请先切换到编辑模式" :disabled="localMode === 'edit'" placement="top">
         <el-button
-          :type="creating ? 'primary' : 'default'"
+          :type="creating && creatingAudioSource === 'tts' ? 'primary' : 'default'"
           :disabled="!hasImage || localMode !== 'edit'"
-          @click="$emit('update:creating', !creating)"
+          @click="toggleCreating('tts')"
         >
           生成文字
+        </el-button>
+      </el-tooltip>
+      <el-tooltip content="请先切换到编辑模式" :disabled="localMode === 'edit'" placement="top">
+        <el-button
+          :type="creating && creatingAudioSource === 'google' ? 'primary' : 'default'"
+          :disabled="!hasImage || localMode !== 'edit'"
+          @click="toggleCreating('google')"
+        >
+          google发音
         </el-button>
       </el-tooltip>
       <el-button :disabled="!hasImage" @click="$emit('reload')">重置视图</el-button>
@@ -66,10 +82,12 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import type { AudioSource } from '../types';
 
 const props = defineProps<{
   mode: 'edit' | 'read';
   creating: boolean;
+  creatingAudioSource: AudioSource;
   hasImage: boolean;
   hasBook: boolean;
   pageCount: number;
@@ -77,17 +95,20 @@ const props = defineProps<{
   ocrRefreshing: boolean;
   importingRegions: boolean;
   saving: boolean;
+  pageReadingStatus: 'idle' | 'playing' | 'paused';
 }>();
 
 const emit = defineEmits<{
   'update:mode': [mode: 'edit' | 'read'];
   'update:creating': [creating: boolean];
+  'update:creatingAudioSource': [audioSource: AudioSource];
   reload: [];
   'refresh-ocr': [];
   'open-import': [];
   'export-json': [];
   'delete-page': [];
   save: [];
+  'toggle-page-reading': [];
 }>();
 
 const modeOptions = [
@@ -100,7 +121,18 @@ const localMode = computed({
   set: (value) => emit('update:mode', value)
 });
 
+const pageReadingLabel = computed(() => {
+  if (props.pageReadingStatus === 'playing') return '暂停朗读';
+  if (props.pageReadingStatus === 'paused') return '恢复朗读';
+  return '朗读全页';
+});
+
 function handleModeChange(value: 'edit' | 'read') {
   emit('update:mode', value);
+}
+
+function toggleCreating(audioSource: AudioSource) {
+  emit('update:creatingAudioSource', audioSource);
+  emit('update:creating', !(props.creating && props.creatingAudioSource === audioSource));
 }
 </script>

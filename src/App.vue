@@ -64,6 +64,7 @@
       @stage-click="handleStageClick"
       @image-load="updateFrameSize"
       @region-click="handleRegionClick"
+      @region-long-press="handleRegionLongPress"
       @region-pointerdown="startDrag"
       @region-select="localId => selectedLocalId = localId"
       @collapse-region="collapseRegion"
@@ -71,8 +72,9 @@
     />
 
     <ToolBar
-      v-model:mode="mode"
+      :mode="mode"
       v-model:creating="creating"
+      v-model:creating-audio-source="creatingAudioSource"
       :has-image="!!currentImage"
       :has-book="!!currentBook"
       :page-count="bookPages.length"
@@ -80,12 +82,15 @@
       :ocr-refreshing="ocrRefreshing"
       :importing-regions="importingRegions"
       :saving="saving"
+      :page-reading-status="pageReadingStatus"
+      @update:mode="setMode"
       @reload="reloadImage"
       @refresh-ocr="refreshOcr"
       @open-import="openImportDialog"
       @export-json="exportRegionsJson"
       @delete-page="deleteCurrentPage"
       @save="saveRegions"
+      @toggle-page-reading="togglePageReading"
     />
 
     <audio ref="audioRef" class="reader-audio" preload="none" playsinline />
@@ -97,7 +102,7 @@ import { ArrowLeft, ArrowRight, Close, FullScreen, Plus } from '@element-plus/ic
 import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import type { ReaderImage, TextRegion, SaveRecord, Book, BookPage } from './types';
+import type { AudioSource, ReaderImage, TextRegion, SaveRecord, Book, BookPage } from './types';
 import AppHeader from './components/AppHeader.vue';
 import NavigationControls from './components/NavigationControls.vue';
 import StageArea from './components/StageArea.vue';
@@ -142,6 +147,7 @@ const historyTabOptions = [
 ];
 const books = ref<Book[]>([]);
 const creating = ref(false);
+const creatingAudioSource = ref<AudioSource>('tts');
 const saving = ref(false);
 const ocrRefreshing = ref(false);
 const uploading = ref(false);
@@ -161,6 +167,12 @@ const frameSize = ref({ width: 640, height: 420 });
 const editingLocalId = ref<string | null>(null);
 const playingLocalId = ref<string | null>(null);
 const playbackToken = ref(0);
+const pageReadingStatus = ref<'idle' | 'playing' | 'paused'>('idle');
+const pageReadingQueue = ref<TextRegion[]>([]);
+const pageReadingIndex = ref(0);
+const suppressAudioAbort = ref(false);
+const ttsPrefetchPromises = new Map<string, Promise<void>>();
+const ttsPrefetchedUrls = new Set<string>();
 const speakerIconSize = 32;
 const uploadLoading = ref<LoadingInstance | null>(null);
 const dragging = ref<{
@@ -207,6 +219,11 @@ const tips = computed(() => {
   return ['阅读模式：点击喇叭播放声音。', '想调整位置时，切回编辑模式拖动喇叭。', '历史记录可以回填图片和标注坐标。'];
 });
 
+function setMode(nextMode: 'edit' | 'read') {
+  if (nextMode === 'edit') stopPageReading();
+  mode.value = nextMode;
+}
+
 onMounted(() => {
   window.addEventListener('resize', updateFrameSize);
   window.addEventListener('pointermove', handlePointerMove);
@@ -223,6 +240,7 @@ onBeforeUnmount(() => {
 });
 
 async function uploadImage(options: unknown) {
+  stopPageReading();
   const file = resolveUploadFile(options);
   if (!file) {
     ElMessage.error('上传失败：没有读取到图片文件');
@@ -278,6 +296,7 @@ async function uploadImage(options: unknown) {
       manualImportMode.value = Boolean(data.ocrError || (data.ocrEnabled && regions.value.length === 0));
       modelMode.value = manualImportMode.value ? 'manual' : 'ai';
       mode.value = 'edit';
+      creatingAudioSource.value = 'tts';
       if (data.cached && regions.value.length > 0) {
         ElMessage.success('已从缓存加载这张图片和标注。');
       } else if (data.cached) {
@@ -301,6 +320,7 @@ async function uploadImage(options: unknown) {
 
 async function reloadImage() {
   if (!currentImage.value) return;
+  stopPageReading();
   const response = await fetch(`/api/images/${currentImage.value.id}`);
   if (!response.ok) {
     ElMessage.error('加载图片失败');
@@ -312,6 +332,7 @@ async function reloadImage() {
   selectedLocalId.value = null;
   editingLocalId.value = null;
   manualImportMode.value = false;
+  creatingAudioSource.value = 'tts';
   // 保持当前 modelMode，不强制修改
   await nextTick();
   updateFrameSize();
@@ -338,6 +359,7 @@ async function openHistory() {
 }
 
 async function loadBook(book: Book) {
+  stopPageReading();
   const response = await fetch(`/api/books/${book.id}`);
   if (!response.ok) {
     ElMessage.error('加载书本失败');
@@ -376,6 +398,7 @@ async function deleteBook(book: Book) {
 
 async function deleteCurrentPage() {
   if (!currentBook.value || !currentImage.value) return;
+  stopPageReading();
 
   const currentPage = bookPages.value[currentPageIndex.value];
   if (!currentPage) return;
@@ -427,6 +450,7 @@ async function deleteCurrentPage() {
 }
 
 async function loadHistoryRecord(record: SaveRecord) {
+  stopPageReading();
   const response = await fetch(`/api/images/${record.imageId}`);
   if (!response.ok) {
     ElMessage.error('加载历史记录失败');
@@ -442,6 +466,7 @@ async function loadHistoryRecord(record: SaveRecord) {
   editingLocalId.value = null;
   creating.value = false;
   manualImportMode.value = false;
+  creatingAudioSource.value = 'tts';
   // 保持默认的 manual 模式，不强制设置为 ai
   mode.value = 'read';
   historyVisible.value = false;
@@ -459,6 +484,7 @@ async function deleteSaveRecord(record: SaveRecord) {
 }
 
 async function clearSaveRecords() {
+  stopPageReading();
   const response = await fetch('/api/save-records', { method: 'DELETE' });
   if (!response.ok) {
     ElMessage.error('清空历史失败');
@@ -475,6 +501,7 @@ async function clearSaveRecords() {
 
 async function refreshOcr() {
   if (!currentImage.value) return;
+  stopPageReading();
   if (regions.value.length > 0) {
     try {
       await ElMessageBox.confirm('重新识别会覆盖当前图片的全部文字标注，确定继续吗？', '重新识别', {
@@ -601,6 +628,7 @@ function exportRegionsJson() {
     },
     regions: regions.value.map((region) => ({
       text: region.text.trim(),
+      audioSource: region.audioSource,
       xPercent: roundPercent(region.xPercent),
       yPercent: roundPercent(region.yPercent),
       widthPercent: roundPercent(region.widthPercent),
@@ -629,6 +657,7 @@ function handleStageClick(event: MouseEvent) {
   const region: TextRegion = {
     localId: createLocalId(),
     text: '',
+    audioSource: creatingAudioSource.value,
     xPercent,
     yPercent,
     widthPercent: 18,
@@ -647,10 +676,212 @@ function handleRegionClick(region: TextRegion) {
   }
   selectedLocalId.value = region.localId;
   if (region.id && mode.value === 'read') {
-    playRegion(region);
+    stopPageReading();
+    playRegion(region, 1);
     return;
   }
   if (mode.value === 'edit') expandRegion(region);
+}
+
+function handleRegionLongPress(region: TextRegion) {
+  selectedLocalId.value = region.localId;
+  if (mode.value !== 'read') return;
+
+  if (region.audioSource === 'google') {
+    stopPageReading();
+    playRegion(region, 2);
+    return;
+  }
+
+  copyEnglishTextFromRegion(region);
+}
+
+async function copyEnglishTextFromRegion(region: TextRegion) {
+  const englishText = extractEnglishText(region.text);
+  if (!englishText) {
+    ElMessage.warning('没有找到可复制的英文内容');
+    return;
+  }
+
+  try {
+    await copyTextToClipboard(englishText);
+    ElMessage.success(`已复制英文：${englishText}`);
+  } catch {
+    ElMessage.error('复制失败，请手动选择英文内容');
+  }
+}
+
+function extractEnglishText(text: string) {
+  return Array.from(text.matchAll(/[A-Za-z]+(?:['-][A-Za-z]+)*/g))
+    .map((match) => match[0])
+    .join(' ')
+    .trim();
+}
+
+function togglePageReading() {
+  if (!currentImage.value || mode.value !== 'read') return;
+  if (pageReadingStatus.value === 'playing') {
+    pausePageReading();
+    return;
+  }
+  if (pageReadingStatus.value === 'paused') {
+    resumePageReading();
+    return;
+  }
+  startPageReading();
+}
+
+function startPageReading() {
+  const queue = buildPageReadingQueue();
+  if (queue.length === 0) {
+    ElMessage.warning('当前页没有可朗读的普通文字');
+    return;
+  }
+  pageReadingQueue.value = queue;
+  pageReadingIndex.value = 0;
+  pageReadingStatus.value = 'playing';
+  playPageReadingCurrent();
+  void prefetchPageReadingQueue(queue.slice(1));
+}
+
+function pausePageReading() {
+  const player = audioRef.value;
+  if (!player) return;
+  pageReadingStatus.value = 'paused';
+  player.pause();
+}
+
+function resumePageReading() {
+  if (pageReadingQueue.value.length === 0) {
+    startPageReading();
+    return;
+  }
+  const player = audioRef.value;
+  if (!player) return;
+  pageReadingStatus.value = 'playing';
+  player.play().catch(() => {
+    pageReadingStatus.value = 'paused';
+    ElMessage.error('恢复朗读失败');
+  });
+}
+
+function stopPageReading() {
+  pageReadingQueue.value = [];
+  pageReadingIndex.value = 0;
+  pageReadingStatus.value = 'idle';
+  playingLocalId.value = null;
+  const player = audioRef.value;
+  if (!player) return;
+  suppressAudioAbort.value = true;
+  player.onended = null;
+  player.onerror = null;
+  player.onabort = null;
+  player.pause();
+  player.currentTime = 0;
+  setTimeout(() => {
+    suppressAudioAbort.value = false;
+  }, 0);
+}
+
+function buildPageReadingQueue() {
+  return regions.value
+    .filter((region) => region.audioSource !== 'google' && region.text.trim())
+    .slice()
+    .sort(compareReadingRegions);
+}
+
+function prefetchPageReadingQueue(queue: TextRegion[]) {
+  queue.forEach((region) => {
+    const url = ttsUrl(region.text);
+    void preloadTtsAudio(url);
+  });
+}
+
+async function preloadTtsAudio(url: string) {
+  if (ttsPrefetchedUrls.has(url)) return;
+  const existing = ttsPrefetchPromises.get(url);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const promise = fetch(url, { cache: 'force-cache' })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`tts preload failed: ${response.status}`);
+      }
+      return response.arrayBuffer();
+    })
+    .then(() => {
+      ttsPrefetchedUrls.add(url);
+    })
+    .catch(() => {
+      // 预加载失败不影响正常播放，仍然会回退到原始 TTS 请求。
+    })
+    .finally(() => {
+      ttsPrefetchPromises.delete(url);
+    });
+
+  ttsPrefetchPromises.set(url, promise);
+  await promise;
+}
+
+function compareReadingRegions(a: TextRegion, b: TextRegion) {
+  const rowThreshold = Math.max(3, Math.min(a.heightPercent, b.heightPercent) * 0.8);
+  const yDelta = Math.abs(a.yPercent - b.yPercent);
+  if (yDelta > rowThreshold) return a.yPercent - b.yPercent;
+  return a.xPercent - b.xPercent;
+}
+
+function playPageReadingCurrent() {
+  const region = pageReadingQueue.value[pageReadingIndex.value];
+  if (!region) {
+    stopPageReading();
+    return;
+  }
+
+  const player = audioRef.value;
+  if (!player) {
+    ElMessage.error('播放器还没有准备好，请再点一次');
+    stopPageReading();
+    return;
+  }
+
+  const token = playbackToken.value + 1;
+  playbackToken.value = token;
+  playingLocalId.value = region.localId;
+  selectedLocalId.value = region.localId;
+  player.onended = () => {
+    if (playbackToken.value !== token || pageReadingStatus.value !== 'playing') return;
+    pageReadingIndex.value += 1;
+    if (pageReadingIndex.value >= pageReadingQueue.value.length) {
+      stopPageReading();
+      return;
+    }
+    playPageReadingCurrent();
+  };
+  player.onerror = () => {
+    if (playbackToken.value !== token) return;
+    pageReadingStatus.value = 'paused';
+    ElMessage.error('朗读中断，请检查音频地址');
+  };
+  player.onabort = () => {
+    if (playbackToken.value !== token || suppressAudioAbort.value) return;
+    pageReadingStatus.value = 'paused';
+  };
+  suppressAudioAbort.value = true;
+  player.pause();
+  player.currentTime = 0;
+  player.src = regionAudioUrl(region, 1) ?? '';
+  setTimeout(() => {
+    suppressAudioAbort.value = false;
+  }, 0);
+  player.play().catch((error: unknown) => {
+    if (playbackToken.value !== token) return;
+    pageReadingStatus.value = 'paused';
+    const message = error instanceof Error ? error.name || error.message : '未知错误';
+    ElMessage.error(`朗读失败：${message}`);
+  });
 }
 
 function collapseRegion(region: TextRegion) {
@@ -700,6 +931,7 @@ async function saveRegions() {
     for (const region of regions.value) {
       const payload = {
         text: region.text.trim(),
+        audioSource: region.audioSource,
         xPercent: region.xPercent,
         yPercent: region.yPercent,
         widthPercent: region.widthPercent,
@@ -770,7 +1002,7 @@ async function deleteRegion(region: TextRegion) {
   }
 }
 
-function playRegion(region: TextRegion) {
+function playRegion(region: TextRegion, googleVariant: 1 | 2 = 1) {
   if (!region.id && !region.text.trim()) {
     ElMessage.warning('请先保存该文字区域');
     return;
@@ -789,7 +1021,13 @@ function playRegion(region: TextRegion) {
   playingLocalId.value = region.localId;
   player.pause();
   player.currentTime = 0;
-  player.src = ttsUrl(region.text);
+  const audioUrl = regionAudioUrl(region, googleVariant);
+  if (!audioUrl) {
+    clearPlayingSelection(region.localId, token);
+    ElMessage.warning('Google 发音需要英文单词');
+    return;
+  }
+  player.src = audioUrl;
   player.onended = () => clearPlayingSelection(region.localId, token);
   player.onerror = () => clearPlayingSelection(region.localId, token);
   player.play().catch((error: unknown) => {
@@ -812,6 +1050,27 @@ function ttsUrl(text: string) {
   const url = new URL('/api/tts', window.location.origin);
   url.searchParams.set('t', text);
   return url.toString();
+}
+
+function regionAudioUrl(region: TextRegion, googleVariant: 1 | 2) {
+  return region.audioSource === 'google'
+    ? googlePronunciationUrl(region.text, googleVariant)
+    : ttsUrl(region.text);
+}
+
+function googlePronunciationUrl(text: string, variant: 1 | 2 = 1) {
+  const word = googlePronunciationWord(text);
+  if (!word) return null;
+  const firstTwoLetters = word.slice(0, 2);
+  return `https://ssl.gstatic.com/dictionary/static/pronunciation/2024-04-19/audio/${firstTwoLetters}/${word}_en_us_${variant}.mp3`;
+}
+
+function googlePronunciationWord(text: string) {
+  return text
+    .toLowerCase()
+    .trim()
+    .match(/[a-z]+(?:['-][a-z]+)*/)?.[0]
+    ?.replace(/[^a-z]/g, '') ?? '';
 }
 
 function startDrag(event: PointerEvent, region: TextRegion, requestedMode: 'box' | 'resize' = 'box') {
@@ -1148,6 +1407,7 @@ function hasUnsavedChanges() {
     if (!original) return true;
 
     if (region.text !== original.text ||
+        region.audioSource !== original.audioSource ||
         Math.abs(region.xPercent - original.xPercent) > 0.01 ||
         Math.abs(region.yPercent - original.yPercent) > 0.01 ||
         Math.abs(region.widthPercent - original.widthPercent) > 0.01 ||

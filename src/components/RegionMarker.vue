@@ -15,6 +15,9 @@
     :style="markerStyle"
     @click.stop="handleClick"
     @pointerdown.stop="handlePointerDown"
+    @pointermove="handlePointerMove"
+    @pointerup="handlePointerUp"
+    @pointercancel="handlePointerCancel"
   >
     <el-input
       v-if="isEditing"
@@ -63,16 +66,24 @@
     >
       <el-icon><BottomRight /></el-icon>
     </button>
-    <span v-else class="speaker-hotspot" :title="region.text || '点击播放'">
-      <el-icon><Microphone /></el-icon>
+    <span
+      v-else
+      class="speaker-hotspot"
+      :class="{ google: region.audioSource === 'google' }"
+      :title="region.audioSource === 'google' ? 'Google 发音' : (region.text || '点击播放')"
+    >
+      <el-icon>
+        <Headset v-if="region.audioSource === 'google'" />
+        <Microphone v-else />
+      </el-icon>
     </span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { BottomRight, Check, Delete, Microphone, Rank } from '@element-plus/icons-vue';
+import { BottomRight, Check, Delete, Headset, Microphone, Rank } from '@element-plus/icons-vue';
 import type { TextRegion } from '../types';
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 
 const props = defineProps<{
   region: TextRegion;
@@ -86,6 +97,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   click: [region: TextRegion];
+  'long-press': [region: TextRegion];
   pointerdown: [event: PointerEvent, region: TextRegion, dragMode?: 'box' | 'resize'];
   select: [localId: string];
   collapse: [region: TextRegion];
@@ -100,12 +112,56 @@ const isEditing = computed(() =>
   (!props.region.confirmed || props.editingLocalId === props.region.localId) &&
   !props.isIcon
 );
+const longPressTimer = ref<number | null>(null);
+const longPressTriggered = ref(false);
+const pointerStart = ref<{ x: number; y: number } | null>(null);
+
+onBeforeUnmount(() => {
+  clearLongPressTimer();
+});
 
 function handleClick() {
+  if (longPressTriggered.value) {
+    longPressTriggered.value = false;
+    return;
+  }
   emit('click', props.region);
 }
 
 function handlePointerDown(event: PointerEvent, dragMode: 'box' | 'resize' = 'box') {
+  if (props.mode === 'read' && dragMode === 'box') {
+    clearLongPressTimer();
+    pointerStart.value = { x: event.clientX, y: event.clientY };
+    longPressTriggered.value = false;
+    longPressTimer.value = window.setTimeout(() => {
+      longPressTriggered.value = true;
+      emit('long-press', props.region);
+    }, 520);
+  }
+
   emit('pointerdown', event, props.region, dragMode);
+}
+
+function handlePointerMove(event: PointerEvent) {
+  if (!pointerStart.value || !longPressTimer.value) return;
+  if (Math.hypot(event.clientX - pointerStart.value.x, event.clientY - pointerStart.value.y) > 8) {
+    clearLongPressTimer();
+  }
+}
+
+function handlePointerUp() {
+  clearLongPressTimer();
+}
+
+function handlePointerCancel() {
+  clearLongPressTimer();
+}
+
+function clearLongPressTimer() {
+  if (longPressTimer.value !== null) {
+    window.clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+  pointerStart.value = null;
 }
 </script>

@@ -288,3 +288,19 @@ export function formatOcrError(data: any, currentRegionCount: number) {
   if (error.startsWith('ocr request failed')) return `重新识别失败：${error}，已保留 ${count} 个标注`;
   return `重新识别失败：${error}，已保留 ${count} 个标注`;
 }
+
+export function resolveUploadFile(source: unknown): File | null {
+  if (source instanceof File) return source;
+  if (!source || typeof source !== 'object') return null;
+
+  const uploadLike = source as { file?: unknown; raw?: unknown };
+  if (uploadLike.file instanceof File) return uploadLike.file;
+  if (uploadLike.raw instanceof File) return uploadLike.raw;
+  return null;
+}
+
+export async function responseErrorMessage(response: Response, fallback: string) {
+  const data = await response.json().catch(() => null);
+  const detail = data?.error || data?.details;
+  return detail ? `${fallback}：${detail}` : fallback;
+}

@@ -4,6 +4,7 @@ data/
 public/uploads/
 .DS_Store
 *.log
+.playwright-cli/
 .env
 .env.*
 !.env.example

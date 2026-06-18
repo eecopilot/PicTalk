@@ -98,7 +98,6 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight, Close, FullScreen, Plus } from '@element-plus/icons-vue';
 import { ElLoading, ElMessage, ElMessageBox } from './element-plus';
 import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -106,11 +105,9 @@ import type { AudioSource, ReaderImage, TextRegion, SaveRecord, Book, BookPage }
 import AppHeader from './components/AppHeader.vue';
 import NavigationControls from './components/NavigationControls.vue';
 import StageArea from './components/StageArea.vue';
-import RegionMarker from './components/RegionMarker.vue';
 import HistoryDrawer from './components/HistoryDrawer.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import CreateBookDialog from './components/CreateBookDialog.vue';
-import ImageCanvas from './components/ImageCanvas.vue';
 import ToolBar from './components/ToolBar.vue';
 import {
   clamp,
@@ -126,10 +123,6 @@ import {
 } from './utils/helpers';
 
 const mode = ref<'edit' | 'read'>('edit');
-const modeOptions = [
-  { label: '编辑', value: 'edit' },
-  { label: '阅读', value: 'read' }
-];
 const modelMode = ref<'ai' | 'manual'>('manual');
 const isFullscreen = ref(false);
 const currentImage = ref<ReaderImage | null>(null);
@@ -141,10 +134,6 @@ const currentPageIndex = ref(0);
 const selectedLocalId = ref<string | null>(null);
 const historyVisible = ref(false);
 const historyTab = ref<'books' | 'records'>('records');
-const historyTabOptions = [
-  { label: '单图', value: 'records' },
-  { label: '书本', value: 'books' }
-];
 const books = ref<Book[]>([]);
 const creating = ref(false);
 const creatingAudioSource = ref<AudioSource>('tts');
@@ -161,7 +150,6 @@ const creatingBook = ref(false);
 const manualImportMode = ref(false);
 const stageAreaRef = ref<InstanceType<typeof StageArea> | null>(null);
 const imageFrameRef = computed(() => stageAreaRef.value?.imageFrameRef || null);
-const imageRef = computed(() => stageAreaRef.value?.imageRef || null);
 const audioRef = ref<HTMLAudioElement | null>(null);
 const frameSize = ref({ width: 640, height: 420 });
 const editingLocalId = ref<string | null>(null);
@@ -187,8 +175,6 @@ const dragging = ref<{
   moved: boolean;
 } | null>(null);
 const suppressNextRegionClick = ref(false);
-
-const selectedRegion = computed(() => regions.value.find((item) => item.localId === selectedLocalId.value));
 
 const regionStyles = computed(() => {
   const styles: Record<string, Record<string, string>> = {};
@@ -978,12 +964,6 @@ async function createSaveRecord() {
   if (!response.ok) throw new Error('save record failed');
 }
 
-async function deleteSelected() {
-  const region = selectedRegion.value;
-  if (!region) return;
-  await deleteRegion(region);
-}
-
 async function deleteRegion(region: TextRegion) {
   if (region.id) {
     const response = await fetch(`/api/text-regions/${region.id}`, { method: 'DELETE' });
@@ -1104,14 +1084,6 @@ function isIconRegion(region: TextRegion) {
   return Boolean(region.confirmed || region.localIconReady) && editingLocalId.value !== region.localId;
 }
 
-function isEditingRegion(region: TextRegion) {
-  return mode.value === 'edit' && (!region.confirmed || editingLocalId.value === region.localId) && !isIconRegion(region);
-}
-
-function isPersistedRegion(region: TextRegion) {
-  return Boolean(region.id);
-}
-
 function handlePointerMove(event: PointerEvent) {
   if (!dragging.value || !imageFrameRef.value) return;
   const rect = imageFrameRef.value.getBoundingClientRect();
@@ -1203,15 +1175,6 @@ function iconPixelWidthPercent() {
 
 function iconPixelHeightPercent() {
   return (speakerIconSize / frameSize.value.height) * 100;
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
 }
 
 function openCreateBookDialog() {

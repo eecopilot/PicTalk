@@ -13,15 +13,6 @@ export function safeFileStem(name: string) {
   return stem.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
 }
 
-export function formatDate(value: string) {
-  return new Date(value).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
 export function createLocalId() {
   if (globalThis.crypto && 'randomUUID' in globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();

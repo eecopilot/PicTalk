@@ -6,7 +6,7 @@ export function ttsUrl(text: string) {
   return url.toString();
 }
 
-export function googlePronunciationWord(text: string) {
+function googlePronunciationWord(text: string) {
   return text
     .toLowerCase()
     .trim()
@@ -14,7 +14,7 @@ export function googlePronunciationWord(text: string) {
     ?.replace(/[^a-z]/g, '') ?? '';
 }
 
-export function googlePronunciationUrl(text: string, variant: 1 | 2 = 1) {
+function googlePronunciationUrl(text: string, variant: 1 | 2 = 1) {
   const word = googlePronunciationWord(text);
   if (!word) return null;
   const firstTwoLetters = word.slice(0, 2);

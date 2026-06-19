@@ -90,10 +90,9 @@ export function usePageReading(deps: PageReadingDeps) {
   }
 
   function buildPageReadingQueue() {
-    return regions.value
-      .filter((region) => region.audioSource !== 'google' && region.text.trim())
-      .slice()
-      .sort(compareReadingRegions);
+    // 按标注的创建顺序朗读（regions 已按 id 升序返回），
+    // 不再按坐标重排——文字框的 y 坐标常常无法可靠地还原视觉行序。
+    return regions.value.filter((region) => region.audioSource !== 'google' && region.text.trim());
   }
 
   function prefetchPageReadingQueue(queue: TextRegion[]) {
@@ -130,13 +129,6 @@ export function usePageReading(deps: PageReadingDeps) {
 
     ttsPrefetchPromises.set(url, promise);
     await promise;
-  }
-
-  function compareReadingRegions(a: TextRegion, b: TextRegion) {
-    const rowThreshold = Math.max(3, Math.min(a.heightPercent, b.heightPercent) * 0.8);
-    const yDelta = Math.abs(a.yPercent - b.yPercent);
-    if (yDelta > rowThreshold) return a.yPercent - b.yPercent;
-    return a.xPercent - b.xPercent;
   }
 
   function playPageReadingCurrent() {

@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import type { Ref } from 'vue';
 import { ElMessage } from '../element-plus';
 import type { TextRegion } from '../types';
-import { regionAudioUrl } from '../utils/audioUrls';
+import { directTtsUrl, regionAudioUrl } from '../utils/audioUrls';
 
 type SingleReadingDeps = {
   mode: Ref<'edit' | 'read'>;
@@ -50,9 +50,19 @@ export function useSingleReading(deps: SingleReadingDeps) {
       ElMessage.warning('Google 发音需要英文单词');
       return;
     }
+    const fallbackAudioUrl = region.audioSource === 'tts' ? directTtsUrl(region.text) : null;
     player.src = audioUrl;
     player.onended = () => clearPlayingSelection(region.localId, token);
-    player.onerror = () => clearPlayingSelection(region.localId, token);
+    player.onerror = () => {
+      if (playbackToken.value !== token) return;
+      if (fallbackAudioUrl && player.src !== fallbackAudioUrl) {
+        player.onerror = () => clearPlayingSelection(region.localId, token);
+        player.src = fallbackAudioUrl;
+        player.play().catch(() => clearPlayingSelection(region.localId, token));
+        return;
+      }
+      clearPlayingSelection(region.localId, token);
+    };
     player.play().catch((error: unknown) => {
       clearPlayingSelection(region.localId, token);
       const message = error instanceof Error ? error.name || error.message : '未知错误';

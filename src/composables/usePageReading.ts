@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import type { Ref } from 'vue';
 import { ElMessage } from '../element-plus';
 import type { TextRegion, ReaderImage } from '../types';
-import { regionAudioUrl, ttsUrl } from '../utils/audioUrls';
+import { directTtsUrl, regionAudioUrl, ttsUrl } from '../utils/audioUrls';
 
 type PageReadingDeps = {
   regions: Ref<TextRegion[]>;
@@ -158,8 +158,23 @@ export function usePageReading(deps: PageReadingDeps) {
       }
       playPageReadingCurrent();
     };
+    const fallbackAudioUrl = region.audioSource === 'tts' ? directTtsUrl(region.text) : null;
     player.onerror = () => {
       if (playbackToken.value !== token) return;
+      if (fallbackAudioUrl && player.src !== fallbackAudioUrl) {
+        suppressAudioAbort.value = true;
+        player.src = fallbackAudioUrl;
+        setTimeout(() => {
+          suppressAudioAbort.value = false;
+        }, 0);
+        player.play().catch((error: unknown) => {
+          if (playbackToken.value !== token) return;
+          pageReadingStatus.value = 'paused';
+          const message = error instanceof Error ? error.name || error.message : '未知错误';
+          ElMessage.error(`朗读失败：${message}`);
+        });
+        return;
+      }
       pageReadingStatus.value = 'paused';
       ElMessage.error('朗读中断，请检查音频地址');
     };

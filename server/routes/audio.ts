@@ -6,9 +6,15 @@ export function registerAudioRoutes(app: Hono) {
     const text = c.req.query('t')?.trim();
     if (!text) return c.json({ error: 'text is required' }, 400);
 
-    const upstream = await fetch(buildTtsUrl(text));
+    const directUrl = buildTtsUrl(text);
+    let upstream: Response;
+    try {
+      upstream = await fetch(directUrl);
+    } catch {
+      return c.redirect(directUrl.toString(), 302);
+    }
     if (!upstream.ok || !upstream.body) {
-      return c.json({ error: 'tts failed' }, 502);
+      return c.redirect(directUrl.toString(), 302);
     }
 
     const audio = await upstream.arrayBuffer();
